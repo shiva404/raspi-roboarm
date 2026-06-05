@@ -68,8 +68,8 @@ def scan(robot) -> None:
 
 
 def flow(robot) -> None:
-    """Glide through several poses in one continuous motion (no stop-and-go)."""
-    print("flow: ready ~> look_left ~> reach_out ~> look_right ~> ready")
+    """Visit several poses with a 1s pause at each."""
+    print("flow: ready -> look_left -> reach_out -> look_right -> ready (1s dwell)")
     robot.move_to_pose("ready", speed_dps=MED)
     robot.flow_through_poses(
         ["look_left", "reach_out", "look_right", "ready"],

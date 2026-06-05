@@ -175,9 +175,24 @@ def test_move_through_reaches_final_waypoint():
     c.move_through(
         [{"base": 120}, {"shoulder": 40}, {"base": 60, "shoulder": 90}],
         speed_dps=200,
+        dwell_s=0,
     )
     assert abs(c.servo("base").angle - 60) < 1e-6
     assert abs(c.servo("shoulder").angle - 90) < 1e-6
+
+
+def test_move_through_dwells_between_waypoints(monkeypatch):
+    cfg = RobotConfig(joints=[ServoConfig(name="base", channel=0, enabled=True)])
+    c = RobotController(config=cfg, force_mock=True, update_hz=200)
+    sleeps: list[float] = []
+    monkeypatch.setattr(
+        __import__("roboarm.controller", fromlist=["time"]).time,
+        "sleep",
+        lambda s: sleeps.append(s),
+    )
+    c.move_through([{"base": 30}, {"base": 60}, {"base": 90}], speed_dps=200, dwell_s=1.0)
+    assert abs(c.servo("base").angle - 90) < 1e-6
+    assert [s for s in sleeps if s >= 1.0] == [1.0, 1.0]
 
 
 def test_move_through_respects_total_duration():

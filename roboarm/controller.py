@@ -155,17 +155,18 @@ class RobotController:
         speed_dps: float | None = None,
         duration_s: float | None = None,
         blend: bool = True,
+        dwell_s: float = 1.0,
     ) -> None:
-        """Flow continuously through a list of waypoints without stopping.
+        """Move through a list of waypoints, optionally pausing at each.
 
-        Unlike calling :meth:`move_many` once per waypoint (which fully stops
-        at each), this treats the whole path as one motion: it accelerates at
-        the very start, cruises *through* the intermediate waypoints at speed,
-        and decelerates only when arriving at the final one.
+        Default (``dwell_s=1``): finish each waypoint move, hold for one second,
+        then start the next — like chained poses with a beat between them.
+
+        Set ``dwell_s=0`` for a single continuous glide (no pause at waypoints;
+        accelerates at the start and decelerates only at the final pose).
 
         ``waypoints`` is a list of ``{joint: angle}`` dicts. A joint omitted
         from a waypoint simply holds the value it had at the previous one.
-        Set ``blend=False`` for constant speed end-to-end (no ease in/out).
         """
         # Resolve waypoints into full nodes (carry omitted joints forward).
         involved: list[str] = []
@@ -185,6 +186,15 @@ class RobotController:
                     nxt[name] = self.servo(name).cfg.clamp_angle(angle)
             nodes.append(nxt)
 
+        if dwell_s > 0:
+            for i in range(len(nodes) - 1):
+                targets = {name: nodes[i + 1][name] for name in involved}
+                self._interpolate(targets, speed_dps, duration_s)
+                if i < len(nodes) - 2:
+                    time.sleep(dwell_s)
+            return
+
+        # Continuous glide (dwell_s == 0).
         # Per-segment duration: slowest joint (after per-joint caps) sets pace.
         seg_durations: list[float] = []
         seg_travel: list[float] = []
@@ -262,8 +272,9 @@ class RobotController:
         speed_dps: float | None = None,
         duration_s: float | None = None,
         blend: bool = True,
+        dwell_s: float = 1.0,
     ) -> list[dict[str, float]]:
-        """Flow smoothly through a sequence of named poses without stopping."""
+        """Move through a sequence of named poses, pausing at each by default."""
         waypoints: list[dict[str, float]] = []
         for name in names:
             if name not in self.config.poses:
@@ -278,7 +289,11 @@ class RobotController:
             }
             waypoints.append(targets)
         self.move_through(
-            waypoints, speed_dps=speed_dps, duration_s=duration_s, blend=blend
+            waypoints,
+            speed_dps=speed_dps,
+            duration_s=duration_s,
+            blend=blend,
+            dwell_s=dwell_s,
         )
         return waypoints
 

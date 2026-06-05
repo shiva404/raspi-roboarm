@@ -151,6 +151,7 @@ Only after base works reliably:
 | Servo buzzing?             | `roboarm release`, then recalibrate  |
 | Test range smoothly      | `roboarm sweep base`                 |
 | Live tinkering           | `roboarm repl`                       |
+| Glide through poses      | `roboarm flow ready reach_out`       |
 | See every pulse          | `roboarm -vv move base 90`           |
 
 ---
@@ -190,7 +191,8 @@ and practice `move base 90`, `home`, `info`.
 3. `home` works
 4. Add second joint
 5. Repeat until all 6 work
-6. Then worry about coordinated arm motion
+6. Coordinated poses (`roboarm pose ready`)
+7. Flowing paths through several poses (`roboarm flow ...`)
 
 ---
 
@@ -233,21 +235,48 @@ poetry run roboarm pose park --speed 40
 Edit the numbers under `poses:` in `robot.yaml` to invent your own — no code
 changes needed. Motion is always clamped, so a typo can't drive past a limit.
 
-### Step 4 — Run the playground sequences
+### Step 4 — Flowing trajectories (glide through poses)
+
+Once single poses feel good, try **flow** — the arm moves to each pose in
+sequence, **waits one second**, then continues to the next.
+
+```bash
+poetry run roboarm flow ready look_left reach_out look_right ready --speed 60
+```
+
+**Useful flags:**
+
+```bash
+poetry run roboarm flow ready reach_out --speed 50      # deg/sec per leg
+poetry run roboarm flow ready reach_out --dwell 2       # hold 2s at each pose
+poetry run roboarm flow ready reach_out --glide         # no pause — one continuous motion
+```
+
+Start at `--speed 50–60`. If the arm strains on a long path, lower speed before
+adding more poses.
+
+Try it in mock first on your laptop:
+
+```bash
+poetry run roboarm --mock flow ready look_left reach_out ready --speed 80
+```
+
+### Step 5 — Run the playground sequences
 
 ```bash
 poetry run python scripts/play.py warmup    # home -> ready
 poetry run python scripts/play.py wave       # wrist wave
 poetry run python scripts/play.py nod        # elbow + wrist together
 poetry run python scripts/play.py scan       # base sweeps left/right
+poetry run python scripts/play.py flow       # glide through poses without stopping
 poetry run python scripts/play.py pick_place # open-reach-grab-lift-drop pantomime
 poetry run python scripts/play.py            # run them all, then park
 ```
 
-Open `scripts/play.py` and copy a routine to make your own — it only uses
-`robot.move_to(...)` and `robot.move_to_pose(...)`.
+Open `scripts/play.py` and copy a routine to make your own — it uses
+`robot.move_to(...)`, `robot.move_to_pose(...)`, and `robot.flow_through_poses(...)`.
 
-### Step 5 — Live driving (REPL)
+### Step 6 — Live driving (REPL)
 
 ```bash
 poetry run roboarm repl
