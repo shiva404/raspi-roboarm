@@ -191,3 +191,76 @@ and practice `move base 90`, `home`, `info`.
 4. Add second joint
 5. Repeat until all 6 work
 6. Then worry about coordinated arm motion
+
+---
+
+## Phase 8 — All servos wired & calibrated: play with moves
+
+You're here once every joint is `enabled: true` in `robot.yaml` and calibrated.
+Take it one step at a time — start slow, watch for any joint that strains.
+
+### Step 1 — Safety check before moving the whole arm
+
+```bash
+poetry run roboarm info        # confirm all 6 joints enabled + limits
+poetry run roboarm home --speed 40   # everything to resting, slowly
+```
+
+Keep one hand near the power switch the first time. If anything strains or
+buzzes, hit `roboarm release` and re-check that joint's limits.
+
+### Step 2 — Move single joints (build intuition)
+
+```bash
+poetry run roboarm move base 120 --speed 40
+poetry run roboarm move shoulder 45 --speed 30   # shoulder is heavy — go slow
+poetry run roboarm jog elbow +15
+poetry run roboarm move gripper 60   # open    (swap if yours is reversed)
+poetry run roboarm move gripper 110  # close
+```
+
+### Step 3 — Named poses (whole-arm moves)
+
+Poses live in `robot.yaml` under `poses:` and stay inside every joint's limits.
+
+```bash
+poetry run roboarm poses              # list available poses
+poetry run roboarm pose ready --speed 40
+poetry run roboarm pose look_left --speed 60
+poetry run roboarm pose park --speed 40
+```
+
+Edit the numbers under `poses:` in `robot.yaml` to invent your own — no code
+changes needed. Motion is always clamped, so a typo can't drive past a limit.
+
+### Step 4 — Run the playground sequences
+
+```bash
+poetry run python scripts/play.py warmup    # home -> ready
+poetry run python scripts/play.py wave       # wrist wave
+poetry run python scripts/play.py nod        # elbow + wrist together
+poetry run python scripts/play.py scan       # base sweeps left/right
+poetry run python scripts/play.py pick_place # open-reach-grab-lift-drop pantomime
+poetry run python scripts/play.py            # run them all, then park
+```
+
+Open `scripts/play.py` and copy a routine to make your own — it only uses
+`robot.move_to(...)` and `robot.move_to_pose(...)`.
+
+### Step 5 — Live driving (REPL)
+
+```bash
+poetry run roboarm repl
+roboarm> move base 60
+roboarm> jog shoulder 10
+roboarm> home
+roboarm> release
+```
+
+### Tips for smooth, safe play
+
+- Start at `--speed 30-60`; raise it once motion looks clean.
+- Move the **shoulder** and **elbow** slowly — they carry the most load.
+- `roboarm release` any time a joint fights its limit or buzzes.
+- After `release`, the next command re-applies holding torque automatically.
+- Test new poses in mock first: `roboarm --mock pose ready`.

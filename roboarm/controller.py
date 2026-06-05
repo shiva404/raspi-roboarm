@@ -170,6 +170,35 @@ class RobotController:
             speed_dps=speed_dps,
         )
 
+    def pose_names(self) -> list[str]:
+        return list(self.config.poses.keys())
+
+    def move_to_pose(
+        self,
+        name: str,
+        speed_dps: float | None = None,
+        duration_s: float | None = None,
+    ) -> dict[str, float]:
+        """Smoothly move to a named pose from robot.yaml.
+
+        Targets for joints that aren't enabled/wired are skipped, so a pose
+        defined for the full arm still works while you bring joints online.
+        """
+        if name not in self.config.poses:
+            raise KeyError(
+                f"No pose named {name!r}. Known poses: {', '.join(self.pose_names()) or '(none)'}"
+            )
+        targets = {
+            joint: angle
+            for joint, angle in self.config.poses[name].items()
+            if joint in self.servos
+        }
+        if not targets:
+            log.warning("Pose %r has no targets for enabled joints.", name)
+            return {}
+        self.move_many(targets, speed_dps=speed_dps, duration_s=duration_s)
+        return targets
+
     def release_all(self) -> None:
         for s in self.servos.values():
             s.release()

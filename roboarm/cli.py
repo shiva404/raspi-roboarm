@@ -9,6 +9,8 @@ Run ``roboarm --help`` to see everything. Highlights:
     roboarm sweep base      # sweep min<->max to eyeball range/jitter
     roboarm jog base +5     # nudge by a few degrees
     roboarm home            # smooth move everything to home
+    roboarm poses           # list named poses from robot.yaml
+    roboarm pose ready      # move the whole arm to a named pose
     roboarm release         # cut torque (servos go limp)
     roboarm calibrate base  # interactively find pulse limits, then save
     roboarm repl            # live interactive control loop
@@ -231,6 +233,47 @@ def home(ctx: Ctx, speed):
     try:
         c.home(speed_dps=speed)
         console.print("[green]home[/]")
+    finally:
+        ctx.close()
+
+
+@cli.command()
+@pass_ctx
+def poses(ctx: Ctx):
+    """List named poses defined in robot.yaml."""
+    c = ctx.controller()
+    try:
+        names = c.pose_names()
+        if not names:
+            console.print("[yellow]No poses defined. Add a `poses:` section to robot.yaml.[/]")
+            return
+        table = Table(title="Named poses")
+        table.add_column("Pose", style="bold")
+        table.add_column("Joint targets", overflow="fold")
+        for name in names:
+            targets = c.config.poses[name]
+            pretty = ", ".join(f"{j}={a:g}" for j, a in targets.items())
+            table.add_row(name, pretty)
+        console.print(table)
+    finally:
+        ctx.close()
+
+
+@cli.command()
+@click.argument("name")
+@click.option("--speed", type=float, default=None, help="deg/sec.")
+@click.option("--duration", type=float, default=None, help="seconds for the move.")
+@pass_ctx
+def pose(ctx: Ctx, name: str, speed, duration):
+    """Move the arm to a named pose from robot.yaml (e.g. `roboarm pose ready`)."""
+    c = ctx.controller()
+    try:
+        targets = c.move_to_pose(name, speed_dps=speed, duration_s=duration)
+        if targets:
+            pretty = ", ".join(f"{j}={a:g}" for j, a in targets.items())
+            console.print(f"[green]pose '{name}'[/] -> {pretty}")
+    except KeyError as exc:
+        console.print(f"[red]{exc}[/]")
     finally:
         ctx.close()
 

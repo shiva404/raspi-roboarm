@@ -95,10 +95,43 @@ def test_load_robot_yaml():
     assert elbow.soft_min_angle == 45
     assert elbow.soft_max_angle == 160
     assert elbow.home_angle == 45
-    assert not elbow.enabled
     shoulder = cfg.joint("shoulder")
     assert shoulder.home_angle == 0
     assert shoulder.soft_max_angle == 160
+
+
+def test_poses_loaded_and_reachable():
+    cfg = load_config(Path(__file__).resolve().parent.parent / "robot.yaml")
+    assert "ready" in cfg.poses
+    assert "home" in cfg.poses
+    assert cfg.poses["ready"]["shoulder"] == 60
+
+    c = RobotController(config=cfg, force_mock=True)
+    targets = c.move_to_pose("ready")
+    assert targets["base"] == 90
+    # Pose angles are clamped to limits, so the arm lands on the requested pose.
+    assert abs(c.servo("shoulder").angle - 60) < 1e-6
+
+
+def test_move_to_pose_unknown_raises():
+    cfg = RobotConfig(joints=[ServoConfig(name="base", channel=0, enabled=True)])
+    c = RobotController(config=cfg, force_mock=True)
+    try:
+        c.move_to_pose("nope")
+        assert False, "expected KeyError"
+    except KeyError:
+        pass
+
+
+def test_move_to_pose_skips_disabled_joints():
+    cfg = RobotConfig(
+        joints=[ServoConfig(name="base", channel=0, enabled=True)],
+        poses={"wide": {"base": 120, "gripper": 90}},
+    )
+    c = RobotController(config=cfg, force_mock=True)
+    targets = c.move_to_pose("wide")
+    assert "gripper" not in targets
+    assert targets["base"] == 120
 
 
 def test_state_persists_between_sessions(tmp_path, monkeypatch):

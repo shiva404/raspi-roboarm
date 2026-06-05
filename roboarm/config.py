@@ -125,6 +125,8 @@ class RobotConfig:
     freq_hz: int = SERVO_FREQ_HZ
     joints: list[ServoConfig] = field(default_factory=list)
     motion: MotionConfig = field(default_factory=MotionConfig)
+    # Named poses: {pose_name: {joint_name: angle}} — see robot.yaml `poses:`.
+    poses: dict[str, dict[str, float]] = field(default_factory=dict)
 
     def joint(self, name_or_channel: str | int) -> ServoConfig:
         for j in self.joints:
@@ -149,6 +151,7 @@ class RobotConfig:
                 "hold_on_exit": self.motion.hold_on_exit,
             },
             "joints": [j.to_yaml_dict() for j in self.joints],
+            "poses": self.poses,
         }
 
     def save(self, path: str | Path) -> None:
@@ -169,11 +172,16 @@ class RobotConfig:
     def from_yaml_data(cls, data: dict) -> "RobotConfig":
         board = data.get("board", {})
         joints = [_servo_from_dict(j) for j in data.get("joints", [])]
+        poses = {
+            str(name): {str(j): float(a) for j, a in (angles or {}).items()}
+            for name, angles in (data.get("poses") or {}).items()
+        }
         return cls(
             address=int(board.get("address", PCA9685_ADDRESS)),
             freq_hz=int(board.get("freq_hz", SERVO_FREQ_HZ)),
             joints=joints,
             motion=_motion_from_dict(data.get("motion")),
+            poses=poses,
         )
 
     @classmethod
@@ -223,7 +231,7 @@ def _merge_yaml_configs(base: dict, override: dict) -> dict:
     if not override:
         return merged
 
-    for section in ("board", "motion", "calibration"):
+    for section in ("board", "motion", "calibration", "poses"):
         if section in override and isinstance(override[section], dict):
             merged.setdefault(section, {}).update(override[section])
 

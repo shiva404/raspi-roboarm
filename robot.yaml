@@ -22,42 +22,55 @@ motion:
 joints:
   - name: base
     channel: 0
-    enabled: false
+    enabled: true
     min: 0
     max: 180
     resting: 90
 
   - name: shoulder
     channel: 2
-    enabled: false
+    enabled: true
     min: 0
     max: 160
     resting: 0
 
   - name: elbow
     channel: 4
-    enabled: false
+    enabled: true
     min: 45
     max: 160
     resting: 45
 
   - name: wrist
     channel: 6
-    enabled: false
+    enabled: true
     min: 25
     max: 147
     resting: 90
 
   - name: wrist_rot
     channel: 8
-    enabled: false
+    enabled: true
     min: 0
     max: 150
     resting: 90
 
   - name: gripper
     channel: 10
-    enabled: false
+    enabled: true
     min: 60
     max: 110
     resting: 90
+
+# Named poses — reach them with `roboarm pose <name>`.
+# All angles are inside the joint limits above. Tweak freely; motion is clamped.
+# gripper: 60 = open, 110 = closed (swap if yours is reversed).
+poses:
+  home:        { base: 90,  shoulder: 0,   elbow: 45,  wrist: 90,  wrist_rot: 90, gripper: 90 }
+  ready:       { base: 90,  shoulder: 60,  elbow: 100, wrist: 90,  wrist_rot: 90, gripper: 90 }
+  reach_out:   { base: 90,  shoulder: 80,  elbow: 140, wrist: 80,  wrist_rot: 90, gripper: 60 }
+  park:        { base: 90,  shoulder: 10,  elbow: 50,  wrist: 40,  wrist_rot: 90, gripper: 110 }
+  look_left:   { base: 150, shoulder: 60,  elbow: 100, wrist: 90,  wrist_rot: 90, gripper: 90 }
+  look_right:  { base: 30,  shoulder: 60,  elbow: 100, wrist: 90,  wrist_rot: 90, gripper: 90 }
+  gripper_open:  { gripper: 60 }
+  gripper_close: { gripper: 110 }
