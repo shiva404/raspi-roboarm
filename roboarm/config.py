@@ -44,6 +44,8 @@ class ServoConfig:
     home_angle: float = 90.0
     invert: bool = False
     enabled: bool = True
+    # Cap speed for heavy joints (deg/sec). None = use global default only.
+    max_speed_dps: float | None = None
 
     def __post_init__(self) -> None:
         if self.soft_min_angle is None:
@@ -75,6 +77,7 @@ class ServoConfig:
             "max_pulse_us": self.max_pulse_us,
             "invert": self.invert,
             "enabled": self.enabled,
+            "max_speed": self.max_speed_dps,
         }
 
 
@@ -82,9 +85,11 @@ class ServoConfig:
 class MotionConfig:
     """Timing and session behaviour — tunable in robot.yaml."""
 
-    default_speed_dps: float = 240.0
-    update_hz: float = 60.0
-    max_steps: int = 25
+    default_speed_dps: float = 60.0
+    update_hz: float = 50.0
+    max_steps: int = 40
+    min_steps: int = 12
+    stagger_joints: bool = True
     attach_on_start: bool = True
     hold_on_exit: bool = True
 
@@ -105,15 +110,22 @@ def _servo_from_dict(d: dict) -> ServoConfig:
         home_angle=float(d.get("resting", d.get("home_angle", 90.0))),
         invert=bool(d.get("invert", False)),
         enabled=bool(d.get("enabled", True)),
+        max_speed_dps=(
+            float(d["max_speed"])
+            if d.get("max_speed") is not None
+            else (float(d["max_speed_dps"]) if d.get("max_speed_dps") is not None else None)
+        ),
     )
 
 
 def _motion_from_dict(d: dict | None) -> MotionConfig:
     d = d or {}
     return MotionConfig(
-        default_speed_dps=float(d.get("default_speed_dps", 240.0)),
-        update_hz=float(d.get("update_hz", 60.0)),
-        max_steps=int(d.get("max_steps", 25)),
+        default_speed_dps=float(d.get("default_speed_dps", 60.0)),
+        update_hz=float(d.get("update_hz", 50.0)),
+        max_steps=int(d.get("max_steps", 40)),
+        min_steps=int(d.get("min_steps", 12)),
+        stagger_joints=bool(d.get("stagger_joints", True)),
         attach_on_start=bool(d.get("attach_on_start", True)),
         hold_on_exit=bool(d.get("hold_on_exit", True)),
     )
@@ -147,6 +159,8 @@ class RobotConfig:
                 "default_speed_dps": self.motion.default_speed_dps,
                 "update_hz": self.motion.update_hz,
                 "max_steps": self.motion.max_steps,
+                "min_steps": self.motion.min_steps,
+                "stagger_joints": self.motion.stagger_joints,
                 "attach_on_start": self.motion.attach_on_start,
                 "hold_on_exit": self.motion.hold_on_exit,
             },

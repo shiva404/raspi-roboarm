@@ -13,16 +13,19 @@ board:
   freq_hz: 50
 
 motion:
-  default_speed_dps: 240   # degrees per second (higher = snappier)
-  update_hz: 60            # interpolation rate (capped by max_steps below)
-  max_steps: 25            # fewer I2C writes = faster response on the Pi
-  attach_on_start: true    # hold torque immediately when a command starts
-  hold_on_exit: true       # keep holding after move (don't go limp)
+  default_speed_dps: 60   # global speed cap (lower = gentler under load)
+  update_hz: 50            # interpolation rate
+  max_steps: 40            # more steps = smoother (each step is one I2C write)
+  min_steps: 12            # never fewer than this — avoids jerky heavy moves
+  stagger_joints: true     # poses/home: move one joint at a time (less peak current)
+  attach_on_start: true
+  hold_on_exit: true
 
 joints:
   - name: base
     channel: 0
     enabled: true
+    max_speed: 80            # deg/sec cap for this joint (optional)
     min: 0
     max: 180
     resting: 90
@@ -30,6 +33,7 @@ joints:
   - name: shoulder
     channel: 2
     enabled: true
+    max_speed: 35            # heaviest joint — keep slow
     min: 0
     max: 160
     resting: 0
@@ -37,6 +41,7 @@ joints:
   - name: elbow
     channel: 4
     enabled: true
+    max_speed: 40
     min: 45
     max: 160
     resting: 45
@@ -44,6 +49,7 @@ joints:
   - name: wrist
     channel: 6
     enabled: true
+    max_speed: 70
     min: 25
     max: 147
     resting: 90
@@ -51,6 +57,7 @@ joints:
   - name: wrist_rot
     channel: 8
     enabled: true
+    max_speed: 80
     min: 0
     max: 150
     resting: 90
@@ -58,6 +65,7 @@ joints:
   - name: gripper
     channel: 10
     enabled: true
+    max_speed: 90
     min: 60
     max: 110
     resting: 90

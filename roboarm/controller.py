@@ -22,6 +22,9 @@ from .state import load_angles, save_angles
 
 log = get_logger(__name__)
 
+# Proximal → distal. Staggered moves follow this order to limit peak current.
+STAGGER_ORDER = ("base", "shoulder", "elbow", "wrist", "wrist_rot", "gripper")
+
 
 def ease_in_out(t: float) -> float:
     """Cosine ease-in/ease-out for t in [0, 1]. Smooth start and stop."""
@@ -49,6 +52,8 @@ class RobotController:
             default_speed_dps if default_speed_dps is not None else motion.default_speed_dps
         )
         self.max_steps = motion.max_steps
+        self.min_steps = motion.min_steps
+        self.stagger_joints = motion.stagger_joints
 
         # Only drive joints marked enabled in robot.yaml (wire one at a time).
         self.servos: dict[str, Servo] = {
@@ -108,13 +113,35 @@ class RobotController:
         targets: dict[str, float],
         speed_dps: float | None = None,
         duration_s: float | None = None,
+        stagger: bool | None = None,
     ) -> None:
-        """Smoothly move several joints so they all arrive together."""
+        """Smoothly move several joints together, or one-by-one if staggered.
+
+        Staggered moves (``stagger=True``) reduce peak current — helpful when
+        shoulder/elbow struggle under load. Defaults to ``motion.stagger_joints``
+        in robot.yaml.
+        """
         clamped = {
             name: self.servo(name).cfg.clamp_angle(angle)
             for name, angle in targets.items()
         }
+        if stagger is None:
+            stagger = self.stagger_joints
+        if stagger:
+            ordered = [n for n in STAGGER_ORDER if n in clamped]
+            ordered += [n for n in clamped if n not in ordered]
+            for name in ordered:
+                self._interpolate({name: clamped[name]}, speed_dps, duration_s)
+            return
         self._interpolate(clamped, speed_dps, duration_s)
+
+    def _effective_speed(self, joint: str, speed_dps: float | None) -> float:
+        """Global speed capped by per-joint max_speed in robot.yaml."""
+        speed = speed_dps if speed_dps is not None else self.default_speed_dps
+        cap = self.servo(joint).cfg.max_speed_dps
+        if cap is not None:
+            return min(speed, cap)
+        return speed
 
     def _interpolate(
         self,
@@ -133,11 +160,16 @@ class RobotController:
             return
 
         if duration_s is None:
-            speed = speed_dps or self.default_speed_dps
-            duration_s = max_delta / max(speed, 1e-6)
+            # Slowest joint sets the pace — heavy joints can have lower max_speed.
+            durations = [
+                abs(deltas[name]) / max(self._effective_speed(name, speed_dps), 1e-6)
+                for name in targets
+            ]
+            duration_s = max(durations) if durations else 0.0
 
-        # Cap I2C writes — each step is a bus transaction on the Pi.
+        # More steps = gentler motion under load (each step is one I2C write).
         steps = max(1, min(int(duration_s * self.update_hz), self.max_steps))
+        steps = max(steps, self.min_steps)
         if max_delta < 5.0:
             steps = min(steps, max(1, int(max_delta)))
 
@@ -178,6 +210,7 @@ class RobotController:
         name: str,
         speed_dps: float | None = None,
         duration_s: float | None = None,
+        stagger: bool | None = None,
     ) -> dict[str, float]:
         """Smoothly move to a named pose from robot.yaml.
 
@@ -196,7 +229,12 @@ class RobotController:
         if not targets:
             log.warning("Pose %r has no targets for enabled joints.", name)
             return {}
-        self.move_many(targets, speed_dps=speed_dps, duration_s=duration_s)
+        self.move_many(
+            targets,
+            speed_dps=speed_dps,
+            duration_s=duration_s,
+            stagger=stagger,
+        )
         return targets
 
     def release_all(self) -> None:

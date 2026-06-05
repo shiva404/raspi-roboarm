@@ -257,10 +257,43 @@ roboarm> home
 roboarm> release
 ```
 
-### Tips for smooth, safe play
+### Tips for smooth motion under load
 
-- Start at `--speed 30-60`; raise it once motion looks clean.
-- Move the **shoulder** and **elbow** slowly — they carry the most load.
-- `roboarm release` any time a joint fights its limit or buzzes.
-- After `release`, the next command re-applies holding torque automatically.
+Servos "struggling" is usually **too much speed** or **too much current at once**,
+not bad code. MG996R units pull 1–2 A each when fighting gravity.
+
+**Software (edit `robot.yaml`):**
+
+```yaml
+motion:
+  default_speed_dps: 60    # lower = gentler
+  max_steps: 40            # more micro-steps = smoother
+  min_steps: 12
+  stagger_joints: true     # poses move one joint at a time
+
+joints:
+  - name: shoulder
+    max_speed: 35           # cap heavy joints individually
+  - name: elbow
+    max_speed: 40
+```
+
+```bash
+poetry run roboarm pose ready              # staggered (default, gentlest)
+poetry run roboarm pose ready --together   # all joints at once (faster, harder)
+poetry run roboarm move shoulder 60 --speed 25
+```
+
+**Hardware (often the real fix):**
+
+- Use a **5 V / 5 A+** supply on PCA9685 `V+` (not the Pi's 5 V pin).
+- Add a **1000 µF capacitor** across the screw-terminal `V+` / `GND`.
+- **Common ground** between Pi, PCA9685, and PSU.
+- If the Pi reboots or servos stutter during moves → power supply is too weak.
+
+**While playing:**
+
+- Start at `--speed 25-40`; raise only when motion looks effortless.
+- Shoulder and elbow carry the arm's weight — always move them slower.
+- `roboarm release` if a joint buzzes, strains, or gets hot.
 - Test new poses in mock first: `roboarm --mock pose ready`.

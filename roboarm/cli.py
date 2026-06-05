@@ -226,12 +226,21 @@ def sweep(ctx: Ctx, joint: str, low, high, cycles: int, speed: float):
 
 @cli.command()
 @click.option("--speed", type=float, default=None, help="deg/sec.")
+@click.option(
+    "--stagger/--together",
+    default=None,
+    help="Move joints one-by-one (less load) or all at once.",
+)
 @pass_ctx
-def home(ctx: Ctx, speed):
+def home(ctx: Ctx, speed, stagger):
     """Smoothly move all joints to their home angle."""
     c = ctx.controller()
     try:
-        c.home(speed_dps=speed)
+        c.move_many(
+            {s.name: s.cfg.home_angle for s in c.servos.values()},
+            speed_dps=speed,
+            stagger=stagger,
+        )
         console.print("[green]home[/]")
     finally:
         ctx.close()
@@ -263,12 +272,19 @@ def poses(ctx: Ctx):
 @click.argument("name")
 @click.option("--speed", type=float, default=None, help="deg/sec.")
 @click.option("--duration", type=float, default=None, help="seconds for the move.")
+@click.option(
+    "--stagger/--together",
+    default=None,
+    help="Move joints one-by-one (less load) or all at once.",
+)
 @pass_ctx
-def pose(ctx: Ctx, name: str, speed, duration):
+def pose(ctx: Ctx, name: str, speed, duration, stagger):
     """Move the arm to a named pose from robot.yaml (e.g. `roboarm pose ready`)."""
     c = ctx.controller()
     try:
-        targets = c.move_to_pose(name, speed_dps=speed, duration_s=duration)
+        targets = c.move_to_pose(
+            name, speed_dps=speed, duration_s=duration, stagger=stagger
+        )
         if targets:
             pretty = ", ".join(f"{j}={a:g}" for j, a in targets.items())
             console.print(f"[green]pose '{name}'[/] -> {pretty}")
