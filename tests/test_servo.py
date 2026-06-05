@@ -74,11 +74,41 @@ def test_release_marks_detached():
 def test_load_robot_yaml():
     cfg = load_config(Path(__file__).resolve().parent.parent / "robot.yaml")
     assert len(cfg.joints) == 6
+    assert len(cfg.enabled_joints()) == 1
+    assert cfg.motion.default_speed_dps == 240
     elbow = cfg.joint("elbow")
     assert elbow.channel == 4
     assert elbow.soft_min_angle == 45
     assert elbow.soft_max_angle == 160
     assert elbow.home_angle == 45
+    assert not elbow.enabled
     shoulder = cfg.joint("shoulder")
     assert shoulder.home_angle == 0
     assert shoulder.soft_max_angle == 160
+
+
+def test_state_persists_between_sessions(tmp_path, monkeypatch):
+    from roboarm import state as state_mod
+
+    monkeypatch.setattr(state_mod, "_state_path", lambda: tmp_path / "state.json")
+    cfg = RobotConfig(joints=[ServoConfig(name="base", channel=0, enabled=True)])
+    c1 = RobotController(config=cfg, force_mock=True)
+    c1.move_to("base", 120, duration_s=0.01)
+    c1.close()
+
+    c2 = RobotController(config=cfg, force_mock=True)
+    assert abs(c2.servo("base").angle - 120) < 1e-6
+    c2.close()
+
+
+def test_close_holds_by_default():
+    cfg = RobotConfig(
+        joints=[ServoConfig(name="base", channel=0, enabled=True)],
+        motion=__import__("roboarm.config", fromlist=["MotionConfig"]).MotionConfig(
+            hold_on_exit=True
+        ),
+    )
+    c = RobotController(config=cfg, force_mock=True)
+    c.set_angle("base", 90)
+    c.close()
+    assert c.servo("base").attached

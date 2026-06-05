@@ -79,11 +79,13 @@ If `scan` doesn't see `0x40`, **stop** — fix wiring/I2C before moving a servo.
 ## Phase 4 — First real move (slow and safe)
 
 ```bash
-poetry run roboarm release                   # servos limp, no torque
-poetry run roboarm move base 90 --speed 20 # very slow
-poetry run roboarm jog base +5
-poetry run roboarm release                   # stop when done
+poetry run roboarm move base 90 --speed 60   # servo holds position after move
+poetry run roboarm jog base +5               # continues from last angle
+poetry run roboarm release                   # only when you want it limp
 ```
+
+> **Tip:** only enable wired servos in `robot.yaml` (`enabled: true`). With one
+> servo, leave the other five at `enabled: false` so `home` doesn't spam I2C.
 
 **Watch for:**
 

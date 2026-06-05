@@ -35,9 +35,10 @@ log = get_logger(__name__)
 
 
 class Ctx:
-    def __init__(self, mock: bool | None, address: int | None):
+    def __init__(self, mock: bool | None, address: int | None, release_on_exit: bool):
         self.mock = mock
         self.address = address
+        self.release_on_exit = release_on_exit
         self._controller: RobotController | None = None
 
     def controller(self) -> RobotController:
@@ -45,12 +46,14 @@ class Ctx:
             cfg = load_config()
             if self.address is not None:
                 cfg.address = self.address
+            if self.release_on_exit:
+                cfg.motion.hold_on_exit = False
             self._controller = RobotController(config=cfg, force_mock=self.mock)
         return self._controller
 
-    def close(self) -> None:
+    def close(self, release: bool | None = None) -> None:
         if self._controller is not None:
-            self._controller.close()
+            self._controller.close(release=release)
             self._controller = None
 
 
@@ -61,8 +64,19 @@ pass_ctx = click.make_pass_decorator(Ctx)
 @click.option("-v", "--verbose", count=True, help="-v INFO, -vv DEBUG (logs every pulse).")
 @click.option("--mock/--no-mock", default=None, help="Force simulation / force real hardware.")
 @click.option("--address", type=lambda x: int(x, 0), default=None, help="PCA9685 I2C address, e.g. 0x40.")
+@click.option(
+    "--release-on-exit/--hold-on-exit",
+    default=False,
+    help="Cut servo torque when the command ends (default: hold position).",
+)
 @click.pass_context
-def cli(click_ctx: click.Context, verbose: int, mock: bool | None, address: int | None):
+def cli(
+    click_ctx: click.Context,
+    verbose: int,
+    mock: bool | None,
+    address: int | None,
+    release_on_exit: bool,
+):
     """Raspberry Pi servo control & debugging for the (future) 6-DOF arm."""
     level = logging.WARNING
     if verbose == 1:
@@ -70,7 +84,7 @@ def cli(click_ctx: click.Context, verbose: int, mock: bool | None, address: int 
     elif verbose >= 2:
         level = logging.DEBUG
     configure_logging(level)
-    click_ctx.obj = Ctx(mock=mock, address=address)
+    click_ctx.obj = Ctx(mock=mock, address=address, release_on_exit=release_on_exit)
 
 
 # --- diagnostics ------------------------------------------------------------
@@ -223,6 +237,18 @@ def home(ctx: Ctx, speed):
 
 @cli.command()
 @pass_ctx
+def wake(ctx: Ctx):
+    """Apply holding torque at the last known angle (no movement)."""
+    c = ctx.controller()
+    try:
+        c.attach_all()
+        console.print("[green]servos holding at last known angles[/]")
+    finally:
+        ctx.close()
+
+
+@cli.command()
+@pass_ctx
 def release(ctx: Ctx):
     """Cut PWM to all servos (they go limp; stops buzzing/heat)."""
     c = ctx.controller()
@@ -230,7 +256,7 @@ def release(ctx: Ctx):
         c.release_all()
         console.print("[green]all servos released[/]")
     finally:
-        ctx.close()
+        ctx.close(release=True)
 
 
 @cli.command()

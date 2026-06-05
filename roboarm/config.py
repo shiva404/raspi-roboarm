@@ -39,6 +39,7 @@ class ServoConfig:
 
     home_angle: float = 90.0
     invert: bool = False
+    enabled: bool = True
 
     def __post_init__(self) -> None:
         if self.soft_min_angle is None:
@@ -69,7 +70,19 @@ class ServoConfig:
             "min_pulse_us": self.min_pulse_us,
             "max_pulse_us": self.max_pulse_us,
             "invert": self.invert,
+            "enabled": self.enabled,
         }
+
+
+@dataclass
+class MotionConfig:
+    """Timing and session behaviour — tunable in robot.yaml."""
+
+    default_speed_dps: float = 240.0
+    update_hz: float = 60.0
+    max_steps: int = 25
+    attach_on_start: bool = True
+    hold_on_exit: bool = True
 
 
 def _servo_from_dict(d: dict) -> ServoConfig:
@@ -87,6 +100,18 @@ def _servo_from_dict(d: dict) -> ServoConfig:
         soft_max_angle=float(d.get("soft_max_angle", hi)),
         home_angle=float(d.get("resting", d.get("home_angle", 90.0))),
         invert=bool(d.get("invert", False)),
+        enabled=bool(d.get("enabled", True)),
+    )
+
+
+def _motion_from_dict(d: dict | None) -> MotionConfig:
+    d = d or {}
+    return MotionConfig(
+        default_speed_dps=float(d.get("default_speed_dps", 240.0)),
+        update_hz=float(d.get("update_hz", 60.0)),
+        max_steps=int(d.get("max_steps", 25)),
+        attach_on_start=bool(d.get("attach_on_start", True)),
+        hold_on_exit=bool(d.get("hold_on_exit", True)),
     )
 
 
@@ -95,6 +120,7 @@ class RobotConfig:
     address: int = PCA9685_ADDRESS
     freq_hz: int = SERVO_FREQ_HZ
     joints: list[ServoConfig] = field(default_factory=list)
+    motion: MotionConfig = field(default_factory=MotionConfig)
 
     def joint(self, name_or_channel: str | int) -> ServoConfig:
         for j in self.joints:
@@ -102,11 +128,21 @@ class RobotConfig:
                 return j
         raise KeyError(f"No joint matching {name_or_channel!r}")
 
+    def enabled_joints(self) -> list[ServoConfig]:
+        return [j for j in self.joints if j.enabled]
+
     def to_yaml_dict(self) -> dict:
         return {
             "board": {
                 "address": self.address,
                 "freq_hz": self.freq_hz,
+            },
+            "motion": {
+                "default_speed_dps": self.motion.default_speed_dps,
+                "update_hz": self.motion.update_hz,
+                "max_steps": self.motion.max_steps,
+                "attach_on_start": self.motion.attach_on_start,
+                "hold_on_exit": self.motion.hold_on_exit,
             },
             "joints": [j.to_yaml_dict() for j in self.joints],
         }
@@ -134,6 +170,7 @@ class RobotConfig:
             address=int(board.get("address", PCA9685_ADDRESS)),
             freq_hz=int(board.get("freq_hz", SERVO_FREQ_HZ)),
             joints=joints,
+            motion=_motion_from_dict(data.get("motion")),
         )
 
     @classmethod
@@ -144,6 +181,7 @@ class RobotConfig:
             address=int(data.get("address", PCA9685_ADDRESS)),
             freq_hz=int(data.get("freq_hz", SERVO_FREQ_HZ)),
             joints=joints,
+            motion=_motion_from_dict(data.get("motion")),
         )
 
 

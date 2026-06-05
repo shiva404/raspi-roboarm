@@ -4,45 +4,59 @@
 #   min / max     — safe travel limits (degrees); motion is clamped to this range
 #   resting       — home position on startup and for `roboarm home`
 #   channel       — PCA9685 header (alternating: 0, 2, 4, 6, 8, 10)
+#   enabled       — set true only for servos you have physically wired
 #   min_pulse_us / max_pulse_us — optional; set via `roboarm calibrate`
 
 board:
   address: 0x40
   freq_hz: 50
 
+motion:
+  default_speed_dps: 240   # degrees per second (higher = snappier)
+  update_hz: 60            # interpolation rate (capped by max_steps below)
+  max_steps: 25            # fewer I2C writes = faster response on the Pi
+  attach_on_start: true    # hold torque immediately when a command starts
+  hold_on_exit: true       # keep holding after move (don't go limp)
+
 joints:
   - name: base
     channel: 0
+    enabled: true
     min: 0
     max: 180
     resting: 90
 
   - name: shoulder
     channel: 2
+    enabled: false
     min: 0
     max: 160
     resting: 0
 
   - name: elbow
     channel: 4
+    enabled: false
     min: 45
     max: 160
     resting: 45
 
   - name: wrist
     channel: 6
+    enabled: false
     min: 25
     max: 147
     resting: 90
 
   - name: wrist_rot
     channel: 8
+    enabled: false
     min: 0
     max: 150
     resting: 90
 
   - name: gripper
     channel: 10
+    enabled: false
     min: 60
     max: 110
     resting: 90

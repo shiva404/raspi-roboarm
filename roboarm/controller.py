@@ -18,6 +18,7 @@ from .backends import PWMBackend, make_backend
 from .config import RobotConfig
 from .logging_setup import get_logger
 from .servo import Servo
+from .state import load_angles, save_angles
 
 log = get_logger(__name__)
 
@@ -33,24 +34,32 @@ class RobotController:
         config: RobotConfig | None = None,
         backend: PWMBackend | None = None,
         force_mock: bool | None = None,
-        update_hz: float = 100.0,
-        default_speed_dps: float = 120.0,
+        update_hz: float | None = None,
+        default_speed_dps: float | None = None,
     ):
         self.config = config or RobotConfig()
+        motion = self.config.motion
         self.backend = backend or make_backend(
             address=self.config.address,
             freq_hz=self.config.freq_hz,
             force_mock=force_mock,
         )
-        # Default cadence of interpolation steps and default joint speed.
-        self.update_hz = update_hz
-        self.default_speed_dps = default_speed_dps
+        self.update_hz = update_hz if update_hz is not None else motion.update_hz
+        self.default_speed_dps = (
+            default_speed_dps if default_speed_dps is not None else motion.default_speed_dps
+        )
+        self.max_steps = motion.max_steps
 
+        # Only drive joints marked enabled in robot.yaml (wire one at a time).
         self.servos: dict[str, Servo] = {
-            j.name: Servo(self.backend, j) for j in self.config.joints
+            j.name: Servo(self.backend, j) for j in self.config.enabled_joints()
         }
         if not self.servos:
-            log.warning("No joints configured — check robot.yaml.")
+            log.warning("No enabled joints — set enabled: true in robot.yaml.")
+
+        self._restore_state()
+        if motion.attach_on_start:
+            self.attach_all()
 
     # --- lookup -------------------------------------------------------------
 
@@ -60,12 +69,19 @@ class RobotController:
         for s in self.servos.values():
             if s.channel == name_or_channel or s.name == name_or_channel:
                 return s
-        raise KeyError(f"No servo matching {name_or_channel!r}")
+        raise KeyError(f"No enabled servo matching {name_or_channel!r}")
 
     # --- instantaneous moves ------------------------------------------------
 
     def set_angle(self, name_or_channel: str | int, angle: float) -> float:
-        return self.servo(name_or_channel).write_angle(angle)
+        result = self.servo(name_or_channel).write_angle(angle)
+        self._persist_state()
+        return result
+
+    def attach_all(self) -> None:
+        """Send PWM to every enabled joint at its current angle (holding torque)."""
+        for s in self.servos.values():
+            s.write_angle(s.angle)
 
     # --- smooth single-joint move ------------------------------------------
 
@@ -113,34 +129,42 @@ class RobotController:
         if max_delta < 1e-6:
             for name, angle in targets.items():
                 self.servo(name).write_angle(angle)
+            self._persist_state()
             return
 
         if duration_s is None:
             speed = speed_dps or self.default_speed_dps
             duration_s = max_delta / max(speed, 1e-6)
 
-        steps = max(1, int(duration_s * self.update_hz))
+        # Cap I2C writes — each step is a bus transaction on the Pi.
+        steps = max(1, min(int(duration_s * self.update_hz), self.max_steps))
+        if max_delta < 5.0:
+            steps = min(steps, max(1, int(max_delta)))
+
         dt = duration_s / steps
         log.debug(
-            "smooth move %s -> %s over %.2fs (%d steps, %.0fHz)",
+            "smooth move %s -> %s over %.2fs (%d steps, %.0fHz cap=%d)",
             starts,
             targets,
             duration_s,
             steps,
             self.update_hz,
+            self.max_steps,
         )
 
         for i in range(1, steps + 1):
             f = ease_in_out(i / steps)
             for name in targets:
                 self.servo(name).write_angle(starts[name] + deltas[name] * f)
-            if i < steps:
+            if i < steps and dt > 0:
                 time.sleep(dt)
+
+        self._persist_state()
 
     # --- helpers ------------------------------------------------------------
 
     def home(self, speed_dps: float | None = None) -> None:
-        """Smoothly send every joint to its home angle."""
+        """Smoothly send every enabled joint to its home angle."""
         self.move_many(
             {s.name: s.cfg.home_angle for s in self.servos.values()},
             speed_dps=speed_dps,
@@ -149,6 +173,7 @@ class RobotController:
     def release_all(self) -> None:
         for s in self.servos.values():
             s.release()
+        self._persist_state()
 
     def state(self) -> dict[str, dict]:
         out: dict[str, dict] = {}
@@ -161,9 +186,24 @@ class RobotController:
             }
         return out
 
-    def close(self) -> None:
+    def _restore_state(self) -> None:
+        saved = load_angles()
+        for name, servo in self.servos.items():
+            if name in saved:
+                servo.remember_angle(saved[name])
+            else:
+                servo.remember_angle(servo.cfg.home_angle)
+
+    def _persist_state(self) -> None:
+        save_angles({name: s.angle for name, s in self.servos.items()})
+
+    def close(self, release: bool | None = None) -> None:
+        if release is None:
+            release = not self.config.motion.hold_on_exit
         try:
-            self.release_all()
+            self._persist_state()
+            if release:
+                self.release_all()
         finally:
             self.backend.deinit()
 

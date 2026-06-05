@@ -36,6 +36,11 @@ class Servo:
         """Whether the channel is actively being driven (holding torque)."""
         return self._attached
 
+    def remember_angle(self, angle: float) -> float:
+        """Set in-memory angle without sending PWM (restore from saved state)."""
+        self._angle = self.cfg.clamp_angle(angle)
+        return self._angle
+
     def write_angle(self, angle: float) -> float:
         """Immediately command an angle (clamped to soft limits)."""
         clamped = self.cfg.clamp_angle(angle)
