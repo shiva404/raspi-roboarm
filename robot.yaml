@@ -29,7 +29,7 @@ joints:
 
   - name: shoulder
     channel: 2
-    enabled: false
+    enabled: true
     min: 0
     max: 160
     resting: 0
