@@ -210,12 +210,20 @@ poetry run pip install rpi-lgpio
 poetry run python -c "import board; print('OK')"
 ```
 
-On **Python 3.13+**, if `lgpio` fails to install, use Adafruit's pre-built wheel:
+On **Python 3.13+**, if `poetry install` fails building `lgpio` (`swig: No such file`):
+
+```bash
+./scripts/bootstrap-pi-gpio.sh
+poetry install
+```
+
+Or manually:
 
 ```bash
 poetry run pip install \
   https://github.com/adafruit/lgpio-python-wheels/raw/main/wheels/lgpio-0.2.2.0-cp313-cp313-linux_aarch64.whl
 poetry run pip install rpi-lgpio
+poetry install
 ```
 
 If `roboarm doctor` still fails after that, reinstall into a fresh venv:

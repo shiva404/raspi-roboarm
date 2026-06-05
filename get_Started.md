@@ -35,10 +35,15 @@ On the Pi:
    poetry run python -c "import board; print('OK')"
    poetry run roboarm doctor    # CircuitPython stack should be OK
    ```
+   If `poetry install` fails on `lgpio` (`swig: No such file`):
+   ```bash
+   ./scripts/bootstrap-pi-gpio.sh
+   poetry install
+   ```
    If you see `No module named 'RPi'`:
    ```bash
    poetry run pip uninstall -y RPi.GPIO
-   poetry run pip install rpi-lgpio
+   ./scripts/bootstrap-pi-gpio.sh
    ```
 3. Copy the project to the Pi (git clone, USB, `scp`, etc.)
 
