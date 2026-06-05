@@ -241,20 +241,12 @@ python-versions = "*"
 groups = ["main"]
 markers = "sys_platform == \"linux\""
 files = [
-    {file = "lgpio-0.2.2.0-cp310-cp310-linux_armv7l.whl", hash = "sha256:97fe5fb0e888c96031e8899e8c0eca64c63076a6d1f1e774acad8696430b2ff6"},
-    {file = "lgpio-0.2.2.0-cp310-cp310-manylinux_2_34_aarch64.whl", hash = "sha256:f8f1a2818ed4293182999679ac8559aea70d45743f5a3ae8025837e529d9e0d4"},
-    {file = "lgpio-0.2.2.0-cp310-cp310-manylinux_2_34_x86_64.whl", hash = "sha256:d245f315e4bc5ba1b72df9fd935a16c99e56ccf6b41d9f66a87804c1dfd91c86"},
-    {file = "lgpio-0.2.2.0-cp311-cp311-linux_armv7l.whl", hash = "sha256:5b3c403e1fba9c17d178f1bde102726c548fc5c4fc1ccf5ec3e18f3c08e07e04"},
-    {file = "lgpio-0.2.2.0-cp311-cp311-manylinux_2_34_aarch64.whl", hash = "sha256:a2f71fb95b149d8ac82c7c6bae70f054f6dc42a006ad35c90c7d8e54921fbcf4"},
-    {file = "lgpio-0.2.2.0-cp311-cp311-manylinux_2_34_x86_64.whl", hash = "sha256:e9f4f3915abe5ae0ffdb4b96f485076d80a663876d839e2d3fd9218a71b9873e"},
-    {file = "lgpio-0.2.2.0-cp312-cp312-linux_armv7l.whl", hash = "sha256:6c65ac42e878764d04a71ed12fe6d46089b36e9e8127722bf29bb2e4bc91de22"},
-    {file = "lgpio-0.2.2.0-cp312-cp312-manylinux_2_34_aarch64.whl", hash = "sha256:d907db79292c721c605af08187385ddb3b7af09907e1ffca56cf0cd6558ace0a"},
-    {file = "lgpio-0.2.2.0-cp312-cp312-manylinux_2_34_x86_64.whl", hash = "sha256:2aadff092f642fcdada8457c158f87259dfda3a89ec19bae0b99ff22b34aac4b"},
-    {file = "lgpio-0.2.2.0-cp39-cp39-linux_armv7l.whl", hash = "sha256:1594dd4fdf054ff396bf0730802732c26aa2040d6c70250d0d34f703baafd121"},
-    {file = "lgpio-0.2.2.0-cp39-cp39-manylinux_2_34_aarch64.whl", hash = "sha256:9ed135824c717901457dcf2462bb1af9f5445aa6e56bb7a9263fc064620ef586"},
-    {file = "lgpio-0.2.2.0-cp39-cp39-manylinux_2_34_x86_64.whl", hash = "sha256:f95d6a6db23f99e745e0aee36cd49a515dd6846a5ddb49474c73a390bb2048e2"},
-    {file = "lgpio-0.2.2.0.tar.gz", hash = "sha256:11372e653b200f76a0b3ef8a23a0735c85ec678a9f8550b9893151ed0f863fff"},
+    {file = "lgpio-0.2.2.0-cp313-cp313-linux_aarch64.whl", hash = "sha256:15ff2b698b54ed31cd0a644f387a3a2bd7928029a72eca618bfc8c225adceb24"},
 ]
+
+[package.source]
+type = "url"
+url = "https://github.com/adafruit/lgpio-python-wheels/raw/main/wheels/lgpio-0.2.2.0-cp313-cp313-linux_aarch64.whl"
 
 [[package]]
 name = "markdown-it-py"
@@ -679,4 +671,4 @@ markers = {main = "python_version < \"3.11\" or sys_platform == \"linux\"", dev 
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.9"
-content-hash = "56900bf651f4262a2d508dc9852d7add3d9f3e87f9b4e566da4aad40874931c7"
+content-hash = "0b58fe54751ed6d4481a659abd672964bd897c52946e07a0f4d9b1ac4025724f"

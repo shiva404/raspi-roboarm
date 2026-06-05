@@ -17,6 +17,9 @@ pyyaml = "^6.0.2"
 adafruit-blinka = { version = "^8.0", markers = "sys_platform == 'linux'" }
 adafruit-circuitpython-pca9685 = { version = "^3.4.0", markers = "sys_platform == 'linux'" }
 adafruit-circuitpython-busdevice = { version = "^5.2.0", markers = "sys_platform == 'linux'" }
+# Python 3.13+ on Pi: PyPI has no lgpio wheel, only a source build (needs swig).
+# Adafruit pre-built aarch64 wheel — see scripts/bootstrap-pi-gpio.sh for py3.14.
+lgpio = { url = "https://github.com/adafruit/lgpio-python-wheels/raw/main/wheels/lgpio-0.2.2.0-cp313-cp313-linux_aarch64.whl", markers = "sys_platform == 'linux' and platform_machine == 'aarch64' and python_version >= '3.13'" }
 # Modern Pi OS (Bookworm+) — provides the RPi.GPIO namespace Blinka expects.
 rpi-lgpio = { version = "^0.6", markers = "sys_platform == 'linux'" }
 
