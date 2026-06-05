@@ -28,11 +28,17 @@ MOCK mode is normal on your Mac — nothing should move yet.
 On the Pi:
 
 1. Enable I2C: `sudo raspi-config` → Interface Options → I2C → Enable → reboot
-2. Install deps (hardware libs auto-install on Linux):
+2. Install system + Python deps:
    ```bash
+   sudo apt install -y i2c-tools libgpiod-dev python3-libgpiod
    poetry install
-   sudo apt install -y i2c-tools
+   poetry run python -c "import board; print('OK')"
    poetry run roboarm doctor    # CircuitPython stack should be OK
+   ```
+   If you see `No module named 'RPi'`:
+   ```bash
+   poetry run pip uninstall -y RPi.GPIO
+   poetry run pip install rpi-lgpio
    ```
 3. Copy the project to the Pi (git clone, USB, `scp`, etc.)
 
