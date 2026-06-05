@@ -40,9 +40,9 @@ joints:
   - name: elbow
     channel: 4
     enabled: true
-    min: 50
+    min: 55
     max: 160
-    resting: 50
+    resting: 55
 
   - name: wrist
     channel: 6
@@ -68,7 +68,7 @@ joints:
 # Named poses — reach them with `roboarm pose <name>`.
 # gripper: 60 = open, 110 = closed (swap if yours is reversed).
 poses:
-  home:        { base: 90,  shoulder: 0,   elbow: 50,  wrist: 90,  wrist_rot: 90, gripper: 90 }
+  home:        { base: 90,  shoulder: 0,   elbow: 55,  wrist: 90,  wrist_rot: 90, gripper: 90 }
   ready:       { base: 90,  shoulder: 60,  elbow: 100, wrist: 90,  wrist_rot: 90, gripper: 90 }
   reach_out:   { base: 90,  shoulder: 80,  elbow: 140, wrist: 80,  wrist_rot: 90, gripper: 60 }
   park:        { base: 90,  shoulder: 10,  elbow: 50,  wrist: 40,  wrist_rot: 90, gripper: 110 }
