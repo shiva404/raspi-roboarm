@@ -164,6 +164,56 @@ def test_motion_blend_linear():
     assert motion_blend(0.5, "linear") == 0.5
 
 
+def test_move_through_reaches_final_waypoint():
+    cfg = RobotConfig(
+        joints=[
+            ServoConfig(name="base", channel=0, enabled=True),
+            ServoConfig(name="shoulder", channel=2, enabled=True),
+        ],
+    )
+    c = RobotController(config=cfg, force_mock=True, update_hz=200)
+    c.move_through(
+        [{"base": 120}, {"shoulder": 40}, {"base": 60, "shoulder": 90}],
+        speed_dps=200,
+    )
+    assert abs(c.servo("base").angle - 60) < 1e-6
+    assert abs(c.servo("shoulder").angle - 90) < 1e-6
+
+
+def test_move_through_respects_total_duration():
+    cfg = RobotConfig(joints=[ServoConfig(name="base", channel=0, enabled=True)])
+    c = RobotController(config=cfg, force_mock=True, update_hz=200)
+    c.move_through([{"base": 30}, {"base": 120}], duration_s=0.05)
+    assert abs(c.servo("base").angle - 120) < 1e-6
+
+
+def test_move_through_clamps_to_limits():
+    cfg = RobotConfig(
+        joints=[
+            ServoConfig(
+                name="base",
+                channel=0,
+                enabled=True,
+                soft_min_angle=10,
+                soft_max_angle=100,
+            )
+        ],
+    )
+    c = RobotController(config=cfg, force_mock=True, update_hz=200)
+    c.move_through([{"base": 500}], speed_dps=200)
+    assert abs(c.servo("base").angle - 100) < 1e-6
+
+
+def test_flow_through_poses_unknown_raises():
+    cfg = RobotConfig(joints=[ServoConfig(name="base", channel=0, enabled=True)])
+    c = RobotController(config=cfg, force_mock=True)
+    try:
+        c.flow_through_poses(["nope"])
+        assert False, "expected KeyError"
+    except KeyError:
+        pass
+
+
 def test_move_to_pose_skips_disabled_joints():
     cfg = RobotConfig(
         joints=[ServoConfig(name="base", channel=0, enabled=True)],

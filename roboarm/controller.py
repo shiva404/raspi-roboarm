@@ -147,6 +147,141 @@ class RobotController:
             return
         self._interpolate(clamped, speed_dps, duration_s)
 
+    # --- flowing multi-waypoint trajectory ---------------------------------
+
+    def move_through(
+        self,
+        waypoints: list[dict[str, float]],
+        speed_dps: float | None = None,
+        duration_s: float | None = None,
+        blend: bool = True,
+    ) -> None:
+        """Flow continuously through a list of waypoints without stopping.
+
+        Unlike calling :meth:`move_many` once per waypoint (which fully stops
+        at each), this treats the whole path as one motion: it accelerates at
+        the very start, cruises *through* the intermediate waypoints at speed,
+        and decelerates only when arriving at the final one.
+
+        ``waypoints`` is a list of ``{joint: angle}`` dicts. A joint omitted
+        from a waypoint simply holds the value it had at the previous one.
+        Set ``blend=False`` for constant speed end-to-end (no ease in/out).
+        """
+        # Resolve waypoints into full nodes (carry omitted joints forward).
+        involved: list[str] = []
+        for wp in waypoints:
+            for name in wp:
+                if name in self.servos and name not in involved:
+                    involved.append(name)
+        if not involved:
+            return
+
+        current = {name: self.servo(name).angle for name in involved}
+        nodes: list[dict[str, float]] = [dict(current)]
+        for wp in waypoints:
+            nxt = dict(nodes[-1])
+            for name, angle in wp.items():
+                if name in self.servos:
+                    nxt[name] = self.servo(name).cfg.clamp_angle(angle)
+            nodes.append(nxt)
+
+        # Per-segment duration: slowest joint (after per-joint caps) sets pace.
+        seg_durations: list[float] = []
+        seg_travel: list[float] = []
+        for a, b in zip(nodes, nodes[1:]):
+            deltas = {name: b[name] - a[name] for name in involved}
+            max_delta = max((abs(d) for d in deltas.values()), default=0.0)
+            seg_travel.append(max_delta)
+            if duration_s is not None:
+                seg_durations.append(max_delta)  # provisional weight; scaled below
+            else:
+                per_joint = [
+                    abs(deltas[name]) / max(self._effective_speed(name, speed_dps), 1e-6)
+                    for name in involved
+                ]
+                seg_durations.append(max(per_joint) if per_joint else 0.0)
+
+        total_travel = sum(seg_travel)
+        if total_travel < 1e-6:
+            for name in involved:
+                self.servo(name).write_angle(nodes[-1][name])
+            self._persist_state()
+            return
+
+        if duration_s is not None:
+            # Distribute the requested total time across segments by travel.
+            total_duration = max(duration_s, 1e-6)
+            seg_durations = [
+                (t / total_travel) * total_duration for t in seg_travel
+            ]
+        else:
+            total_duration = sum(seg_durations)
+        total_duration = max(total_duration, 1e-6)
+
+        cum = [0.0]
+        for d in seg_durations:
+            cum.append(cum[-1] + d)
+
+        steps = max(
+            2,
+            int(math.ceil(total_travel / max(self.max_deg_per_step, 0.5))),
+            int(total_duration * self.update_hz),
+        )
+        dt = total_duration / steps
+        log.debug(
+            "flow through %d waypoints over %.2fs (%d steps, blend=%s)",
+            len(waypoints),
+            total_duration,
+            steps,
+            blend,
+        )
+
+        seg = 0
+        for i in range(1, steps + 1):
+            u = i / steps
+            te = ease_in_out(u) if blend else u
+            target_time = te * total_duration
+            while seg < len(seg_durations) - 1 and target_time > cum[seg + 1]:
+                seg += 1
+            span = seg_durations[seg]
+            local = (target_time - cum[seg]) / span if span > 1e-9 else 1.0
+            local = min(max(local, 0.0), 1.0)
+            a, b = nodes[seg], nodes[seg + 1]
+            for name in involved:
+                self.servo(name).write_angle(a[name] + (b[name] - a[name]) * local)
+            if i < steps and dt > 0:
+                time.sleep(dt)
+
+        for name in involved:
+            self.servo(name).write_angle(nodes[-1][name])
+        self._persist_state()
+
+    def flow_through_poses(
+        self,
+        names: list[str],
+        speed_dps: float | None = None,
+        duration_s: float | None = None,
+        blend: bool = True,
+    ) -> list[dict[str, float]]:
+        """Flow smoothly through a sequence of named poses without stopping."""
+        waypoints: list[dict[str, float]] = []
+        for name in names:
+            if name not in self.config.poses:
+                raise KeyError(
+                    f"No pose named {name!r}. Known poses: "
+                    f"{', '.join(self.pose_names()) or '(none)'}"
+                )
+            targets = {
+                joint: angle
+                for joint, angle in self.config.poses[name].items()
+                if joint in self.servos
+            }
+            waypoints.append(targets)
+        self.move_through(
+            waypoints, speed_dps=speed_dps, duration_s=duration_s, blend=blend
+        )
+        return waypoints
+
     def _effective_speed(self, joint: str, speed_dps: float | None) -> float:
         """Global speed capped by per-joint max_speed in robot.yaml."""
         speed = speed_dps if speed_dps is not None else self.default_speed_dps

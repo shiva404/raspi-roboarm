@@ -11,6 +11,7 @@ Run ``roboarm --help`` to see everything. Highlights:
     roboarm home            # smooth move everything to home
     roboarm poses           # list named poses from robot.yaml
     roboarm pose ready      # move the whole arm to a named pose
+    roboarm flow a b c      # glide through several poses without stopping
     roboarm release         # cut torque (servos go limp)
     roboarm calibrate base  # interactively find pulse limits, then save
     roboarm repl            # live interactive control loop
@@ -288,6 +289,34 @@ def pose(ctx: Ctx, name: str, speed, duration, stagger):
         if targets:
             pretty = ", ".join(f"{j}={a:g}" for j, a in targets.items())
             console.print(f"[green]pose '{name}'[/] -> {pretty}")
+    except KeyError as exc:
+        console.print(f"[red]{exc}[/]")
+    finally:
+        ctx.close()
+
+
+@cli.command()
+@click.argument("names", nargs=-1, required=True)
+@click.option("--speed", type=float, default=None, help="deg/sec along the path.")
+@click.option("--duration", type=float, default=None, help="total seconds for the whole path.")
+@click.option(
+    "--blend/--constant",
+    default=True,
+    help="Ease in/out at the ends (default) or hold constant speed throughout.",
+)
+@pass_ctx
+def flow(ctx: Ctx, names: tuple[str, ...], speed, duration, blend: bool):
+    """Flow smoothly through several poses without stopping at each.
+
+    Example: `roboarm flow ready reach_out look_left` glides through all three
+    in one continuous motion, only slowing at the very start and end.
+    """
+    c = ctx.controller()
+    try:
+        c.flow_through_poses(
+            list(names), speed_dps=speed, duration_s=duration, blend=blend
+        )
+        console.print(f"[green]flowed through:[/] {' -> '.join(names)}")
     except KeyError as exc:
         console.print(f"[red]{exc}[/]")
     finally:

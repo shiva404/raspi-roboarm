@@ -5,11 +5,12 @@ Run on the Pi:      poetry run python scripts/play.py
 Pick one routine:   poetry run python scripts/play.py wave
 Simulate (no Pi):   ROBOARM_MOCK=1 poetry run python scripts/play.py
 
-Routines: warmup, wave, nod, scan, pick_place, all (default).
+Routines: warmup, wave, nod, scan, flow, pick_place, all (default).
 
-Everything here is built from two calls you already know:
-  robot.move_to(joint, angle, speed_dps=...)   # one joint
-  robot.move_to_pose(name, speed_dps=...)       # a named pose from robot.yaml
+Everything here is built from calls you already know:
+  robot.move_to(joint, angle, speed_dps=...)        # one joint
+  robot.move_to_pose(name, speed_dps=...)            # a named pose
+  robot.flow_through_poses([a, b, c], speed_dps=...)  # glide through poses
 
 All moves are smooth and clamped to the limits in robot.yaml, so you can't
 drive a joint past its safe range. Start slow; raise the speeds once it looks
@@ -66,6 +67,16 @@ def scan(robot) -> None:
     robot.move_to_pose("ready", speed_dps=MED)
 
 
+def flow(robot) -> None:
+    """Glide through several poses in one continuous motion (no stop-and-go)."""
+    print("flow: ready ~> look_left ~> reach_out ~> look_right ~> ready")
+    robot.move_to_pose("ready", speed_dps=MED)
+    robot.flow_through_poses(
+        ["look_left", "reach_out", "look_right", "ready"],
+        speed_dps=MED,
+    )
+
+
 def pick_place(robot) -> None:
     """Pantomime a pick-and-place: open, reach, close, lift, move, drop."""
     print("pick_place")
@@ -85,6 +96,7 @@ ROUTINES = {
     "wave": wave,
     "nod": nod,
     "scan": scan,
+    "flow": flow,
     "pick_place": pick_place,
 }
 
@@ -104,6 +116,7 @@ def main() -> None:
                 wave(robot)
                 nod(robot)
                 scan(robot)
+                flow(robot)
                 pick_place(robot)
                 robot.move_to_pose("park", speed_dps=SLOW)
             elif choice in ROUTINES:
