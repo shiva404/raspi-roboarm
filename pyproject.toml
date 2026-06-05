@@ -17,6 +17,8 @@ pyyaml = "^6.0.2"
 adafruit-blinka = { version = "^8.0", markers = "sys_platform == 'linux'" }
 adafruit-circuitpython-pca9685 = { version = "^3.4.0", markers = "sys_platform == 'linux'" }
 adafruit-circuitpython-busdevice = { version = "^5.2.0", markers = "sys_platform == 'linux'" }
+# Modern Pi OS (Bookworm+) — provides the RPi.GPIO namespace Blinka expects.
+rpi-lgpio = { version = "^0.6", markers = "sys_platform == 'linux'" }
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"

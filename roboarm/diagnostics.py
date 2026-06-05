@@ -90,11 +90,13 @@ def run_health_checks(address: int = 0x40) -> list[Check]:
     if hw:
         hw_detail = "adafruit_pca9685 + board import OK"
     elif pi:
-        hw_detail = (
-            f"not importable — {import_err}. "
-            "Run: poetry install  (hardware deps auto-install on Linux). "
-            "If still failing: poetry run python -c \"import board\""
-        )
+        hint = "Run: poetry install"
+        if import_err and "No module named 'RPi'" in import_err:
+            hint = (
+                "Run: poetry run pip install rpi-lgpio  "
+                "(or: poetry install — includes rpi-lgpio on Linux)"
+            )
+        hw_detail = f"not importable — {import_err}. {hint}"
     else:
         hw_detail = (
             f"not importable — {import_err}. "

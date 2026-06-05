@@ -191,21 +191,38 @@ On a laptop (development / mock mode):
 poetry install
 ```
 
-On the Raspberry Pi (real hardware) — same command; Adafruit/I2C libs
-auto-install on Linux:
+On the Raspberry Pi (real hardware) — system libs first, then Poetry
+(Adafruit/I2C packages auto-install on Linux):
 
 ```bash
+sudo apt install -y i2c-tools libgpiod-dev python3-libgpiod
 poetry install
-sudo apt install -y i2c-tools   # optional, for raw `i2cdetect`
+poetry run python -c "import board; print('OK')"
+poetry run roboarm doctor
 ```
 
-If `roboarm doctor` still reports the CircuitPython stack as FAIL after
-`poetry install`, reinstall into a fresh venv:
+**`ModuleNotFoundError: No module named 'RPi'`** — modern Pi OS needs
+`rpi-lgpio` (not the old `RPi.GPIO`). This project includes it; if missing:
+
+```bash
+poetry run pip uninstall -y RPi.GPIO   # remove broken legacy package if present
+poetry run pip install rpi-lgpio
+poetry run python -c "import board; print('OK')"
+```
+
+On **Python 3.13+**, if `lgpio` fails to install, use Adafruit's pre-built wheel:
+
+```bash
+poetry run pip install \
+  https://github.com/adafruit/lgpio-python-wheels/raw/main/wheels/lgpio-0.2.2.0-cp313-cp313-linux_aarch64.whl
+poetry run pip install rpi-lgpio
+```
+
+If `roboarm doctor` still fails after that, reinstall into a fresh venv:
 
 ```bash
 poetry env remove --all
 poetry install
-poetry run python -c "import board; print('OK')"
 ```
 
 ## Quick start
