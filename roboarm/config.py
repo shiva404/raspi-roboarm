@@ -1,11 +1,13 @@
 """Servo & arm configuration.
 
-Joint angles, limits, and PCA9685 channels live in ``robot.yaml`` at the project
-root. Edit that file to readjust the arm — no code changes needed.
+Joint angles, limits, and channels live in ``robot.yaml`` (tracked in git).
+Machine-specific pulse calibration from ``roboarm calibrate`` is saved to
+``robot.calibration.yaml`` (gitignored) and merged on top at runtime.
 """
 
 from __future__ import annotations
 
+import copy
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -18,6 +20,8 @@ PCA9685_ADDRESS = 0x40
 SERVO_FREQ_HZ = 50
 
 DEFAULT_CONFIG_FILE = "robot.yaml"
+CALIBRATION_OVERRIDE_FILE = "robot.calibration.yaml"
+CALIBRATION_OVERRIDE_EXAMPLE = "robot.calibration.yaml.example"
 LEGACY_CALIBRATION_FILE = "calibration.json"
 
 
@@ -162,8 +166,7 @@ class RobotConfig:
             path.write_text(json.dumps(data, indent=2))
 
     @classmethod
-    def from_yaml(cls, path: str | Path) -> "RobotConfig":
-        data = yaml.safe_load(Path(path).read_text())
+    def from_yaml_data(cls, data: dict) -> "RobotConfig":
         board = data.get("board", {})
         joints = [_servo_from_dict(j) for j in data.get("joints", [])]
         return cls(
@@ -172,6 +175,11 @@ class RobotConfig:
             joints=joints,
             motion=_motion_from_dict(data.get("motion")),
         )
+
+    @classmethod
+    def from_yaml(cls, path: str | Path) -> "RobotConfig":
+        data = yaml.safe_load(Path(path).read_text())
+        return cls.from_yaml_data(data)
 
     @classmethod
     def from_json(cls, path: str | Path) -> "RobotConfig":
@@ -198,12 +206,97 @@ def resolve_config_path(path: str | Path | None = None) -> Path:
     return _project_root() / DEFAULT_CONFIG_FILE
 
 
+def resolve_calibration_path() -> Path:
+    """Path for machine-specific calibration overrides (created on first save)."""
+    for candidate in (
+        Path.cwd() / CALIBRATION_OVERRIDE_FILE,
+        _project_root() / CALIBRATION_OVERRIDE_FILE,
+    ):
+        if candidate.exists():
+            return candidate
+    return Path.cwd() / CALIBRATION_OVERRIDE_FILE
+
+
+def _merge_yaml_configs(base: dict, override: dict) -> dict:
+    """Deep-merge ``override`` onto ``base``; joint entries match by ``name``."""
+    merged = copy.deepcopy(base)
+    if not override:
+        return merged
+
+    for section in ("board", "motion", "calibration"):
+        if section in override and isinstance(override[section], dict):
+            merged.setdefault(section, {}).update(override[section])
+
+    base_joints = {j["name"]: j for j in merged.get("joints", [])}
+    for entry in override.get("joints", []):
+        name = entry["name"]
+        if name in base_joints:
+            base_joints[name].update(entry)
+        else:
+            base_joints[name] = copy.deepcopy(entry)
+    merged["joints"] = list(base_joints.values())
+    return merged
+
+
+def _load_yaml_dict(path: Path) -> dict:
+    data = yaml.safe_load(path.read_text())
+    return data if isinstance(data, dict) else {}
+
+
+def save_calibration_override(
+    joint_name: str,
+    min_pulse_us: int,
+    max_pulse_us: int,
+    *,
+    path: str | Path | None = None,
+    base_config: RobotConfig | None = None,
+) -> Path:
+    """Write pulse limits for one joint to the gitignored override file."""
+    out = Path(path) if path is not None else resolve_calibration_path()
+    existing = _load_yaml_dict(out) if out.exists() else {}
+
+    joints = {j["name"]: j for j in existing.get("joints", []) if "name" in j}
+    entry = joints.get(joint_name, {"name": joint_name})
+    entry["min_pulse_us"] = int(min_pulse_us)
+    entry["max_pulse_us"] = int(max_pulse_us)
+    if base_config is not None:
+        try:
+            entry["channel"] = base_config.joint(joint_name).channel
+        except KeyError:
+            pass
+    joints[joint_name] = entry
+
+    data = {
+        "calibration": {
+            "base": DEFAULT_CONFIG_FILE,
+            "note": "Machine-specific overrides. Gitignored — safe on each Pi.",
+        },
+        "joints": list(joints.values()),
+    }
+    if existing.get("calibration"):
+        data["calibration"].update(
+            {k: v for k, v in existing["calibration"].items() if k not in data["calibration"]}
+        )
+
+    header = (
+        "# Machine-specific calibration overrides (gitignored).\n"
+        "# Merged on top of robot.yaml at runtime.\n"
+        "# Written by: roboarm calibrate <joint>\n\n"
+    )
+    out.write_text(header + yaml.dump(data, default_flow_style=False, sort_keys=False))
+    return out
+
+
 def load_config(path: str | Path | None = None) -> RobotConfig:
-    """Load ``robot.yaml`` (or legacy ``calibration.json`` as fallback)."""
+    """Load ``robot.yaml`` merged with ``robot.calibration.yaml`` if present."""
     p = resolve_config_path(path)
     if p.exists():
         if p.suffix in (".yaml", ".yml"):
-            return RobotConfig.from_yaml(p)
+            data = _load_yaml_dict(p)
+            cal_path = resolve_calibration_path()
+            if cal_path.exists():
+                data = _merge_yaml_configs(data, _load_yaml_dict(cal_path))
+            return RobotConfig.from_yaml_data(data)
         return RobotConfig.from_json(p)
 
     legacy = Path.cwd() / LEGACY_CALIBRATION_FILE

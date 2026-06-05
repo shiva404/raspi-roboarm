@@ -18,5 +18,6 @@ poetry.toml
 # Project
 *.log
 calibration.json
+robot.calibration.yaml
 .roboarm_state.json
 .DS_Store

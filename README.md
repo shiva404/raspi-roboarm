@@ -301,8 +301,17 @@ joints:
     resting: 45    # home position for `roboarm home`
 ```
 
-Changes take effect on the next run. Pulse-width fine-tuning (from
-`roboarm calibrate`) is also saved back into `robot.yaml`.
+Changes take effect on the next run.
+
+**Calibration** (`roboarm calibrate`) saves pulse widths to
+**`robot.calibration.yaml`** (gitignored) — not `robot.yaml`. At runtime the
+override is merged on top of the base config, so `git pull` on the Pi never
+conflicts with your per-machine tuning:
+
+```bash
+cp robot.calibration.yaml.example robot.calibration.yaml   # optional starter
+roboarm calibrate base   # press w to save pulses to robot.calibration.yaml
+```
 
 Drive multiple joints together:
 
@@ -316,7 +325,9 @@ with open_robot() as arm:
 ## Project layout
 
 ```
-robot.yaml         # joint angles, limits, channels — edit this
+robot.yaml                      # joint angles, limits, channels — edit this (git)
+robot.calibration.yaml          # per-Pi pulse overrides (gitignored)
+robot.calibration.yaml.example  # template for the override file
 roboarm/
   config.py        # loads robot.yaml into ServoConfig / RobotConfig
   backends.py      # PCA9685 (real) + Mock (sim) PWM backends

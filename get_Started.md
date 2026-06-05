@@ -109,9 +109,8 @@ poetry run roboarm calibrate base
 ```
 
 Nudge with `+`/`-` until you find real mechanical min/max (stop when it strains).
-Press `w` to save pulse limits to `robot.yaml`.
-
-Then tune angles in `robot.yaml` if needed:
+Press `w` to save pulse limits to `robot.calibration.yaml` (gitignored — won't
+conflict with `git pull`). Tune angles in `robot.yaml` if needed:
 
 ```yaml
   - name: base

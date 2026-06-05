@@ -6,6 +6,7 @@
 #   channel       — PCA9685 header (alternating: 0, 2, 4, 6, 8, 10)
 #   enabled       — set true only for servos you have physically wired
 #   min_pulse_us / max_pulse_us — optional; set via `roboarm calibrate`
+#                                 (saved to robot.calibration.yaml, gitignored)
 
 board:
   address: 0x40

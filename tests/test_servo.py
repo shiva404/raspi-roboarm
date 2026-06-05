@@ -5,7 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from roboarm.backends import MockBackend
-from roboarm.config import RobotConfig, ServoConfig, load_config
+from roboarm.config import (
+    RobotConfig,
+    ServoConfig,
+    load_config,
+    save_calibration_override,
+)
 from roboarm.controller import RobotController, ease_in_out
 
 
@@ -99,6 +104,50 @@ def test_state_persists_between_sessions(tmp_path, monkeypatch):
     c2 = RobotController(config=cfg, force_mock=True)
     assert abs(c2.servo("base").angle - 120) < 1e-6
     c2.close()
+
+
+def test_calibration_override_merges(tmp_path, monkeypatch):
+    from roboarm import config as config_mod
+
+    base = tmp_path / "robot.yaml"
+    base.write_text(
+        "joints:\n"
+        "  - name: base\n"
+        "    channel: 0\n"
+        "    min: 0\n"
+        "    max: 180\n"
+        "    resting: 90\n"
+    )
+    cal = tmp_path / "robot.calibration.yaml"
+    cal.write_text(
+        "joints:\n"
+        "  - name: base\n"
+        "    min_pulse_us: 600\n"
+        "    max_pulse_us: 2400\n"
+    )
+    monkeypatch.setattr(config_mod, "resolve_config_path", lambda p=None: base)
+    monkeypatch.setattr(config_mod, "resolve_calibration_path", lambda: cal)
+
+    cfg = load_config()
+    joint = cfg.joint("base")
+    assert joint.min_pulse_us == 600
+    assert joint.max_pulse_us == 2400
+    assert joint.home_angle == 90
+
+
+def test_save_calibration_override_creates_file(tmp_path):
+    cfg = RobotConfig(joints=[ServoConfig(name="base", channel=0, enabled=True)])
+    out = tmp_path / "robot.calibration.yaml"
+    save_calibration_override("base", 550, 2450, path=out, base_config=cfg)
+    text = out.read_text()
+    assert "min_pulse_us: 550" in text
+    assert "max_pulse_us: 2450" in text
+    assert "robot.yaml" in text
+
+    save_calibration_override("base", 560, 2460, path=out, base_config=cfg)
+    text2 = out.read_text()
+    assert "min_pulse_us: 560" in text2
+    assert text2.count("name: base") == 1
 
 
 def test_close_holds_by_default():

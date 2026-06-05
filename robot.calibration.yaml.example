@@ -1,0 +1,22 @@
+# Example calibration override — copy to robot.calibration.yaml on your Pi.
+# robot.calibration.yaml is gitignored so each machine keeps its own pulses.
+#
+#   cp robot.calibration.yaml.example robot.calibration.yaml
+#   roboarm calibrate base    # overwrites pulse values for that joint
+#
+# Only include fields you want to override; robot.yaml provides the rest.
+
+calibration:
+  base: robot.yaml
+  note: Machine-specific pulse widths from roboarm calibrate
+
+joints:
+  - name: base
+    channel: 0
+    min_pulse_us: 520
+    max_pulse_us: 2480
+
+  # - name: shoulder
+  #   channel: 2
+  #   min_pulse_us: 500
+  #   max_pulse_us: 2500
