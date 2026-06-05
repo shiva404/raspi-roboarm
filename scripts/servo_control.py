@@ -17,7 +17,7 @@ from roboarm.controller import open_robot
 
 
 def main() -> None:
-    # open_robot() loads calibration.json if present, else built-in defaults,
+    # open_robot() loads robot.yaml from the project root,
     # and auto-selects real hardware vs. mock. It always releases servos on exit.
     with open_robot() as robot:
         joint = next(iter(robot.servos))  # "base" for now

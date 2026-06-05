@@ -1,0 +1,48 @@
+# raspi-roboarm configuration
+# Edit angles here and re-run — no code changes needed.
+#
+#   min / max     — safe travel limits (degrees); motion is clamped to this range
+#   resting       — home position on startup and for `roboarm home`
+#   channel       — PCA9685 header (alternating: 0, 2, 4, 6, 8, 10)
+#   min_pulse_us / max_pulse_us — optional; set via `roboarm calibrate`
+
+board:
+  address: 0x40
+  freq_hz: 50
+
+joints:
+  - name: base
+    channel: 0
+    min: 0
+    max: 180
+    resting: 90
+
+  - name: shoulder
+    channel: 2
+    min: 0
+    max: 160
+    resting: 0
+
+  - name: elbow
+    channel: 4
+    min: 45
+    max: 160
+    resting: 45
+
+  - name: wrist
+    channel: 6
+    min: 25
+    max: 147
+    resting: 90
+
+  - name: wrist_rot
+    channel: 8
+    min: 0
+    max: 150
+    resting: 90
+
+  - name: gripper
+    channel: 10
+    min: 60
+    max: 110
+    resting: 90

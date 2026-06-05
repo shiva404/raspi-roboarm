@@ -26,7 +26,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from .config import DEFAULT_CALIBRATION_FILE, load_config
+from .config import DEFAULT_CONFIG_FILE, load_config, resolve_config_path
 from .controller import RobotController
 from .logging_setup import configure_logging, get_logger
 
@@ -265,7 +265,7 @@ def calibrate(ctx: Ctx, joint: str, step: int):
     without trusting the angle math. Keys:
       +/-  nudge pulse   |  s set as MIN   |  e set as MAX
       m    go to current MIN   |  x go to current MAX   |  c center
-      w    write to calibration.json   |  q quit
+      w    write pulse limits to robot.yaml   |  q quit
     """
     c = ctx.controller()
     s = c.servo(joint)
@@ -311,8 +311,9 @@ def calibrate(ctx: Ctx, joint: str, step: int):
             elif key == "w":
                 cfg.min_pulse_us = int(new_min)
                 cfg.max_pulse_us = int(new_max)
-                c.config.save(DEFAULT_CALIBRATION_FILE)
-                console.print(f"[green]Saved to {DEFAULT_CALIBRATION_FILE}[/]")
+                cfg_path = resolve_config_path()
+                c.config.save(cfg_path)
+                console.print(f"[green]Saved pulse limits to {cfg_path}[/]")
             elif key in ("q", "\x03", "\x04"):
                 break
             else:

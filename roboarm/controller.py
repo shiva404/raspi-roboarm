@@ -50,7 +50,7 @@ class RobotController:
             j.name: Servo(self.backend, j) for j in self.config.joints
         }
         if not self.servos:
-            log.warning("No joints configured — check config.DEFAULT_JOINTS.")
+            log.warning("No joints configured — check robot.yaml.")
 
     # --- lookup -------------------------------------------------------------
 

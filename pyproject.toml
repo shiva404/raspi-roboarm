@@ -10,6 +10,7 @@ packages = [{ include = "roboarm" }]
 python = "^3.9"
 click = "^8.1.7"
 rich = "^13.7.1"
+pyyaml = "^6.0.2"
 
 # Hardware-only dependencies. These import native I2C drivers that only exist
 # on a Raspberry Pi (Linux). They are kept optional so the project installs and

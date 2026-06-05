@@ -1,8 +1,7 @@
 """Servo & arm configuration.
 
-Everything mechanical lives here so the control code stays generic. Today we
-drive a single MG996R; the same structure scales straight to a 6-DOF arm by
-adding more :class:`ServoConfig` entries to :data:`DEFAULT_JOINTS`.
+Joint angles, limits, and PCA9685 channels live in ``robot.yaml`` at the project
+root. Edit that file to readjust the arm — no code changes needed.
 """
 
 from __future__ import annotations
@@ -11,47 +10,34 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+import yaml
+
 # --- PCA9685 board defaults -------------------------------------------------
 
-# Default I2C address of a PCA9685 with no address jumpers soldered.
 PCA9685_ADDRESS = 0x40
-
-# Servo PWM frequency. Analog hobby servos (incl. MG996R) expect ~50 Hz.
 SERVO_FREQ_HZ = 50
+
+DEFAULT_CONFIG_FILE = "robot.yaml"
+LEGACY_CALIBRATION_FILE = "calibration.json"
 
 
 @dataclass
 class ServoConfig:
-    """Calibration + limits for one servo channel.
-
-    Pulse widths are in microseconds. The MG996R datasheet implies ~1000-2000us
-    for its rated travel, but most units happily reach a wider 500-2500us range
-    for a fuller ~180deg sweep. Defaults below are conservative-but-wide; always
-    confirm with ``roboarm calibrate`` before trusting the extremes, because
-    driving past the mechanical stop makes the servo buzz, draw current, and
-    overheat.
-    """
+    """Calibration + limits for one servo channel."""
 
     name: str
     channel: int
 
-    # Electrical limits of the servo (microseconds).
     min_pulse_us: int = 500
     max_pulse_us: int = 2500
 
-    # The angle range those pulses map to (degrees).
     min_angle: float = 0.0
     max_angle: float = 180.0
 
-    # Software travel limits (degrees) — keep the joint inside its safe arc.
-    # These default to the full range; tighten them per joint on the arm.
     soft_min_angle: float | None = None
     soft_max_angle: float | None = None
 
-    # Where the joint should rest on startup / "home".
     home_angle: float = 90.0
-
-    # Flip direction if the servo is mounted "backwards".
     invert: bool = False
 
     def __post_init__(self) -> None:
@@ -64,7 +50,6 @@ class ServoConfig:
         return max(self.soft_min_angle, min(self.soft_max_angle, angle))
 
     def angle_to_pulse_us(self, angle: float) -> float:
-        """Map a (clamped) angle to a microsecond pulse width."""
         angle = self.clamp_angle(angle)
         if self.invert:
             angle = self.min_angle + self.max_angle - angle
@@ -74,27 +59,42 @@ class ServoConfig:
         frac = (angle - self.min_angle) / span_angle
         return self.min_pulse_us + frac * (self.max_pulse_us - self.min_pulse_us)
 
+    def to_yaml_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "channel": self.channel,
+            "min": self.soft_min_angle,
+            "max": self.soft_max_angle,
+            "resting": self.home_angle,
+            "min_pulse_us": self.min_pulse_us,
+            "max_pulse_us": self.max_pulse_us,
+            "invert": self.invert,
+        }
 
-# --- The robot ---------------------------------------------------------------
 
-# Step 1: one MG996R on CH00. For the full 6-DOF arm, use alternating PCA9685
-# channels (0, 2, 4, 6, 8, 10) so servo cables spread across the board — see
-# README "Connections" for the wiring map.
-DEFAULT_JOINTS: list[ServoConfig] = [
-    ServoConfig(name="base", channel=0, home_angle=90.0),
-    # ServoConfig(name="shoulder", channel=2, home_angle=90.0),
-    # ServoConfig(name="elbow",    channel=4, home_angle=90.0),
-    # ServoConfig(name="wrist",    channel=6, home_angle=90.0),
-    # ServoConfig(name="wrist_rot",channel=8, home_angle=90.0),
-    # ServoConfig(name="gripper",  channel=10, home_angle=90.0),
-]
+def _servo_from_dict(d: dict) -> ServoConfig:
+    """Build a ServoConfig from a YAML/JSON joint entry."""
+    lo = d.get("min", d.get("min_angle", 0.0))
+    hi = d.get("max", d.get("max_angle", 180.0))
+    return ServoConfig(
+        name=d["name"],
+        channel=int(d["channel"]),
+        min_pulse_us=int(d.get("min_pulse_us", 500)),
+        max_pulse_us=int(d.get("max_pulse_us", 2500)),
+        min_angle=float(lo),
+        max_angle=float(hi),
+        soft_min_angle=float(d.get("soft_min_angle", lo)),
+        soft_max_angle=float(d.get("soft_max_angle", hi)),
+        home_angle=float(d.get("resting", d.get("home_angle", 90.0))),
+        invert=bool(d.get("invert", False)),
+    )
 
 
 @dataclass
 class RobotConfig:
     address: int = PCA9685_ADDRESS
     freq_hz: int = SERVO_FREQ_HZ
-    joints: list[ServoConfig] = field(default_factory=lambda: list(DEFAULT_JOINTS))
+    joints: list[ServoConfig] = field(default_factory=list)
 
     def joint(self, name_or_channel: str | int) -> ServoConfig:
         for j in self.joints:
@@ -102,34 +102,78 @@ class RobotConfig:
                 return j
         raise KeyError(f"No joint matching {name_or_channel!r}")
 
-    # --- Persistence (used by the calibration tool) -------------------------
+    def to_yaml_dict(self) -> dict:
+        return {
+            "board": {
+                "address": self.address,
+                "freq_hz": self.freq_hz,
+            },
+            "joints": [j.to_yaml_dict() for j in self.joints],
+        }
 
     def save(self, path: str | Path) -> None:
         path = Path(path)
-        data = {
-            "address": self.address,
-            "freq_hz": self.freq_hz,
-            "joints": [asdict(j) for j in self.joints],
-        }
-        path.write_text(json.dumps(data, indent=2))
+        if path.suffix in (".yaml", ".yml"):
+            path.write_text(
+                yaml.dump(self.to_yaml_dict(), default_flow_style=False, sort_keys=False)
+            )
+        else:
+            data = {
+                "address": self.address,
+                "freq_hz": self.freq_hz,
+                "joints": [asdict(j) for j in self.joints],
+            }
+            path.write_text(json.dumps(data, indent=2))
 
     @classmethod
-    def load(cls, path: str | Path) -> "RobotConfig":
-        data = json.loads(Path(path).read_text())
-        joints = [ServoConfig(**j) for j in data.get("joints", [])]
+    def from_yaml(cls, path: str | Path) -> "RobotConfig":
+        data = yaml.safe_load(Path(path).read_text())
+        board = data.get("board", {})
+        joints = [_servo_from_dict(j) for j in data.get("joints", [])]
         return cls(
-            address=data.get("address", PCA9685_ADDRESS),
-            freq_hz=data.get("freq_hz", SERVO_FREQ_HZ),
+            address=int(board.get("address", PCA9685_ADDRESS)),
+            freq_hz=int(board.get("freq_hz", SERVO_FREQ_HZ)),
+            joints=joints,
+        )
+
+    @classmethod
+    def from_json(cls, path: str | Path) -> "RobotConfig":
+        data = json.loads(Path(path).read_text())
+        joints = [_servo_from_dict(j) for j in data.get("joints", [])]
+        return cls(
+            address=int(data.get("address", PCA9685_ADDRESS)),
+            freq_hz=int(data.get("freq_hz", SERVO_FREQ_HZ)),
             joints=joints,
         )
 
 
-DEFAULT_CALIBRATION_FILE = "calibration.json"
+def _project_root() -> Path:
+    return Path(__file__).resolve().parent.parent
 
 
-def load_config(path: str | Path = DEFAULT_CALIBRATION_FILE) -> RobotConfig:
-    """Load saved calibration if present, else fall back to built-in defaults."""
-    p = Path(path)
+def resolve_config_path(path: str | Path | None = None) -> Path:
+    if path is not None:
+        return Path(path)
+    for candidate in (Path.cwd() / DEFAULT_CONFIG_FILE, _project_root() / DEFAULT_CONFIG_FILE):
+        if candidate.exists():
+            return candidate
+    return _project_root() / DEFAULT_CONFIG_FILE
+
+
+def load_config(path: str | Path | None = None) -> RobotConfig:
+    """Load ``robot.yaml`` (or legacy ``calibration.json`` as fallback)."""
+    p = resolve_config_path(path)
     if p.exists():
-        return RobotConfig.load(p)
-    return RobotConfig()
+        if p.suffix in (".yaml", ".yml"):
+            return RobotConfig.from_yaml(p)
+        return RobotConfig.from_json(p)
+
+    legacy = Path.cwd() / LEGACY_CALIBRATION_FILE
+    if not legacy.exists():
+        legacy = _project_root() / LEGACY_CALIBRATION_FILE
+    if legacy.exists():
+        return RobotConfig.from_json(legacy)
+
+    raise FileNotFoundError(
+        f"No config found. Expected {DEFAULT_CONFIG_FILE} in the project root."
+    )

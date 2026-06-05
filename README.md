@@ -125,16 +125,16 @@ If it feels forced, stop — you may have the orientation reversed.
 Use **alternating channel numbers** (0, 2, 4, 6, 8, 10) instead of 0–5 in a
 row. That spreads connectors across the board so cables don't bunch up on one
 corner, leaves odd channels (1, 3, 5 …) free for extras, and matches the joint
-order in `roboarm/config.py`.
+order in `robot.yaml`.
 
-| Joint index | Joint name | PCA9685 CH | Code `channel` | Arm segment |
-|-------------|------------|------------|----------------|-------------|
-| 0 | `base` | **CH00** | `0` | Base rotation |
-| 1 | `shoulder` | **CH02** | `2` | Shoulder |
-| 2 | `elbow` | **CH04** | `4` | Elbow |
-| 3 | `wrist` | **CH06** | `6` | Wrist pitch |
-| 4 | `wrist_rot` | **CH08** | `8` | Wrist roll |
-| 5 | `gripper` | **CH10** | `10` | Gripper |
+| Joint index | Joint name | PCA9685 CH | `channel` | min | max | resting |
+|-------------|------------|------------|-----------|-----|-----|---------|
+| 0 | `base` | **CH00** | `0` | 0 | 180 | 90 |
+| 1 | `shoulder` | **CH02** | `2` | 0 | 160 | 0 |
+| 2 | `elbow` | **CH04** | `4` | 45 | 160 | 45 |
+| 3 | `wrist` | **CH06** | `6` | 25 | 147 | 90 |
+| 4 | `wrist_rot` | **CH08** | `8` | 0 | 150 | 90 |
+| 5 | `gripper` | **CH10** | `10` | 60 | 110 | 90 |
 
 ```
   Board headers used (alternating — gaps keep wiring tidy):
@@ -252,14 +252,24 @@ You control it with `--speed` (deg/sec) or `--duration` (seconds), and
 `move_many()` moves several joints so they **arrive together** — the foundation
 for coordinated arm motion. Use `--instant` to bypass smoothing for comparison.
 
-## Growing into a 6-DOF arm
+## Configuration (`robot.yaml`)
 
-Step 1 drives one joint (`base` on **CH00**). Add joints by uncommenting
-`DEFAULT_JOINTS` in `roboarm/config.py` — each entry uses the **alternating
-channel map** (0, 2, 4, 6, 8, 10) from the Connections section above. Wire each
-servo to the matching PCA9685 header before enabling it in config.
+All joint angles, limits, and PCA9685 channels live in **`robot.yaml`** at the
+project root. Edit this file to readjust the arm — no code changes needed.
 
-Then drive them together:
+```yaml
+joints:
+  - name: elbow
+    channel: 4
+    min: 45        # safe lower limit (degrees)
+    max: 160       # safe upper limit
+    resting: 45    # home position for `roboarm home`
+```
+
+Changes take effect on the next run. Pulse-width fine-tuning (from
+`roboarm calibrate`) is also saved back into `robot.yaml`.
+
+Drive multiple joints together:
 
 ```python
 from roboarm.controller import open_robot
@@ -271,8 +281,9 @@ with open_robot() as arm:
 ## Project layout
 
 ```
+robot.yaml         # joint angles, limits, channels — edit this
 roboarm/
-  config.py        # ServoConfig / RobotConfig — all the mechanical params
+  config.py        # loads robot.yaml into ServoConfig / RobotConfig
   backends.py      # PCA9685 (real) + Mock (sim) PWM backends
   servo.py         # one servo: angle <-> pulse mapping + state
   controller.py    # smooth interpolation, coordinated multi-joint moves
