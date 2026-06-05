@@ -89,9 +89,9 @@ def test_load_robot_yaml():
     cfg = load_config(Path(__file__).resolve().parent.parent / "robot.yaml")
     assert len(cfg.joints) == 6
     assert len(cfg.enabled_joints()) >= 0
-    assert cfg.motion.default_speed_dps == 60
-    assert cfg.motion.stagger_joints is True
-    assert cfg.joint("shoulder").max_speed_dps == 35
+    assert cfg.motion.default_speed_dps == 90
+    assert cfg.motion.stagger_joints is False
+    assert cfg.motion.profile == "linear"
     elbow = cfg.joint("elbow")
     assert elbow.channel == 4
     assert elbow.soft_min_angle == 45
@@ -132,11 +132,10 @@ def test_per_joint_speed_cap_slows_heavy_joint():
             ServoConfig(name="wrist", channel=6, enabled=True, max_speed_dps=90),
         ],
         motion=__import__("roboarm.config", fromlist=["MotionConfig"]).MotionConfig(
-            default_speed_dps=120, max_steps=100, min_steps=1
+            default_speed_dps=120, max_steps=100, max_deg_per_step=2.0
         ),
     )
     c = RobotController(config=cfg, force_mock=True, update_hz=100)
-    # Shoulder 60° at 30 dps needs 2s; wrist 30° at 90 dps needs 0.33s → pace = 2s
     c.move_many({"shoulder": 60, "wrist": 30}, speed_dps=120, stagger=False)
     assert abs(c.servo("shoulder").angle - 60) < 1e-6
 
@@ -148,13 +147,21 @@ def test_stagger_moves_sequentially():
             ServoConfig(name="shoulder", channel=2, enabled=True),
         ],
         motion=__import__("roboarm.config", fromlist=["MotionConfig"]).MotionConfig(
-            stagger_joints=True, min_steps=1, max_steps=5
+            stagger_joints=True, max_steps=20, max_deg_per_step=2.0
         ),
     )
     c = RobotController(config=cfg, force_mock=True, update_hz=50)
     c.move_many({"shoulder": 45, "base": 120}, stagger=True)
     assert abs(c.servo("base").angle - 120) < 1e-6
     assert abs(c.servo("shoulder").angle - 45) < 1e-6
+
+
+def test_motion_blend_linear():
+    from roboarm.controller import motion_blend
+
+    assert motion_blend(0.0, "linear") == 0.0
+    assert motion_blend(1.0, "linear") == 1.0
+    assert motion_blend(0.5, "linear") == 0.5
 
 
 def test_move_to_pose_skips_disabled_joints():

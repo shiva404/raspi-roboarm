@@ -31,6 +31,17 @@ def ease_in_out(t: float) -> float:
     return 0.5 - 0.5 * math.cos(math.pi * t)
 
 
+def motion_blend(t: float, profile: str) -> float:
+    """Map normalized time [0,1] to interpolation fraction.
+
+    ``linear`` — constant speed, no acceleration spikes (best under load).
+    ``smooth`` — cosine ease-in/out (snappier start/stop).
+    """
+    if profile == "smooth":
+        return ease_in_out(t)
+    return t
+
+
 class RobotController:
     def __init__(
         self,
@@ -52,8 +63,9 @@ class RobotController:
             default_speed_dps if default_speed_dps is not None else motion.default_speed_dps
         )
         self.max_steps = motion.max_steps
-        self.min_steps = motion.min_steps
+        self.max_deg_per_step = motion.max_deg_per_step
         self.stagger_joints = motion.stagger_joints
+        self.profile = motion.profile
 
         # Only drive joints marked enabled in robot.yaml (wire one at a time).
         self.servos: dict[str, Servo] = {
@@ -117,9 +129,9 @@ class RobotController:
     ) -> None:
         """Smoothly move several joints together, or one-by-one if staggered.
 
-        Staggered moves (``stagger=True``) reduce peak current — helpful when
-        shoulder/elbow struggle under load. Defaults to ``motion.stagger_joints``
-        in robot.yaml.
+        Staggered moves (``stagger=True``) move one joint at a time. This lowers
+        peak electrical current but often makes the arm *mechanically* unstable
+        (each joint moves while others hold). Default is coordinated (together).
         """
         clamped = {
             name: self.servo(name).cfg.clamp_angle(angle)
@@ -167,25 +179,26 @@ class RobotController:
             ]
             duration_s = max(durations) if durations else 0.0
 
-        # More steps = gentler motion under load (each step is one I2C write).
-        steps = max(1, min(int(duration_s * self.update_hz), self.max_steps))
-        steps = max(steps, self.min_steps)
-        if max_delta < 5.0:
-            steps = min(steps, max(1, int(max_delta)))
+        # Enough steps that no joint jumps more than max_deg_per_step per tick.
+        steps = max(2, int(math.ceil(max_delta / max(self.max_deg_per_step, 0.5))))
+        steps = min(steps, int(duration_s * self.update_hz), self.max_steps)
+        steps = max(steps, 2)
+        # Honour explicit duration — never finish faster than requested.
+        duration_s = max(duration_s, steps / self.update_hz)
 
         dt = duration_s / steps
         log.debug(
-            "smooth move %s -> %s over %.2fs (%d steps, %.0fHz cap=%d)",
+            "move %s -> %s over %.2fs (%d steps, %.1f deg/step, profile=%s)",
             starts,
             targets,
             duration_s,
             steps,
-            self.update_hz,
-            self.max_steps,
+            max_delta / steps,
+            self.profile,
         )
 
         for i in range(1, steps + 1):
-            f = ease_in_out(i / steps)
+            f = motion_blend(i / steps, self.profile)
             for name in targets:
                 self.servo(name).write_angle(starts[name] + deltas[name] * f)
             if i < steps and dt > 0:

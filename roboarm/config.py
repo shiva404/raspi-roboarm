@@ -85,11 +85,12 @@ class ServoConfig:
 class MotionConfig:
     """Timing and session behaviour — tunable in robot.yaml."""
 
-    default_speed_dps: float = 60.0
-    update_hz: float = 50.0
-    max_steps: int = 40
-    min_steps: int = 12
-    stagger_joints: bool = True
+    default_speed_dps: float = 90.0
+    update_hz: float = 60.0
+    max_steps: int = 30
+    max_deg_per_step: float = 2.0
+    stagger_joints: bool = False
+    profile: str = "linear"
     attach_on_start: bool = True
     hold_on_exit: bool = True
 
@@ -121,11 +122,12 @@ def _servo_from_dict(d: dict) -> ServoConfig:
 def _motion_from_dict(d: dict | None) -> MotionConfig:
     d = d or {}
     return MotionConfig(
-        default_speed_dps=float(d.get("default_speed_dps", 60.0)),
-        update_hz=float(d.get("update_hz", 50.0)),
-        max_steps=int(d.get("max_steps", 40)),
-        min_steps=int(d.get("min_steps", 12)),
-        stagger_joints=bool(d.get("stagger_joints", True)),
+        default_speed_dps=float(d.get("default_speed_dps", 90.0)),
+        update_hz=float(d.get("update_hz", 60.0)),
+        max_steps=int(d.get("max_steps", 30)),
+        max_deg_per_step=float(d.get("max_deg_per_step", 2.0)),
+        stagger_joints=bool(d.get("stagger_joints", False)),
+        profile=str(d.get("profile", "linear")),
         attach_on_start=bool(d.get("attach_on_start", True)),
         hold_on_exit=bool(d.get("hold_on_exit", True)),
     )
@@ -159,8 +161,9 @@ class RobotConfig:
                 "default_speed_dps": self.motion.default_speed_dps,
                 "update_hz": self.motion.update_hz,
                 "max_steps": self.motion.max_steps,
-                "min_steps": self.motion.min_steps,
+                "max_deg_per_step": self.motion.max_deg_per_step,
                 "stagger_joints": self.motion.stagger_joints,
+                "profile": self.motion.profile,
                 "attach_on_start": self.motion.attach_on_start,
                 "hold_on_exit": self.motion.hold_on_exit,
             },

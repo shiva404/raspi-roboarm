@@ -13,11 +13,12 @@ board:
   freq_hz: 50
 
 motion:
-  default_speed_dps: 60   # global speed cap (lower = gentler under load)
-  update_hz: 50            # interpolation rate
-  max_steps: 40            # more steps = smoother (each step is one I2C write)
-  min_steps: 12            # never fewer than this — avoids jerky heavy moves
-  stagger_joints: true     # poses/home: move one joint at a time (less peak current)
+  default_speed_dps: 90    # deg/sec — try 60 if shoulder struggles on power alone
+  update_hz: 60
+  max_steps: 30            # cap on interpolation steps (each = one I2C write)
+  max_deg_per_step: 2.0    # no joint jumps more than this per tick
+  profile: linear        # linear = steady speed under load; smooth = ease-in/out
+  stagger_joints: false    # false = all joints move together (stable). true = one-by-one (jerky)
   attach_on_start: true
   hold_on_exit: true
 
@@ -25,7 +26,6 @@ joints:
   - name: base
     channel: 0
     enabled: true
-    max_speed: 80            # deg/sec cap for this joint (optional)
     min: 0
     max: 180
     resting: 90
@@ -33,7 +33,6 @@ joints:
   - name: shoulder
     channel: 2
     enabled: true
-    max_speed: 35            # heaviest joint — keep slow
     min: 0
     max: 160
     resting: 0
@@ -41,7 +40,6 @@ joints:
   - name: elbow
     channel: 4
     enabled: true
-    max_speed: 40
     min: 45
     max: 160
     resting: 45
@@ -49,7 +47,6 @@ joints:
   - name: wrist
     channel: 6
     enabled: true
-    max_speed: 70
     min: 25
     max: 147
     resting: 90
@@ -57,7 +54,6 @@ joints:
   - name: wrist_rot
     channel: 8
     enabled: true
-    max_speed: 80
     min: 0
     max: 150
     resting: 90
@@ -65,13 +61,11 @@ joints:
   - name: gripper
     channel: 10
     enabled: true
-    max_speed: 90
     min: 60
     max: 110
     resting: 90
 
 # Named poses — reach them with `roboarm pose <name>`.
-# All angles are inside the joint limits above. Tweak freely; motion is clamped.
 # gripper: 60 = open, 110 = closed (swap if yours is reversed).
 poses:
   home:        { base: 90,  shoulder: 0,   elbow: 45,  wrist: 90,  wrist_rot: 90, gripper: 90 }

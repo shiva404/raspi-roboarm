@@ -259,41 +259,34 @@ roboarm> release
 
 ### Tips for smooth motion under load
 
-Servos "struggling" is usually **too much speed** or **too much current at once**,
-not bad code. MG996R units pull 1–2 A each when fighting gravity.
+Servos "struggling" is usually **too much speed** or **weak power**, not bad
+calibration. For a multi-joint arm, **move all joints together** — moving one
+joint at a time (`stagger`) often makes the arm whip and feel unstable.
 
-**Software (edit `robot.yaml`):**
+**Software (`robot.yaml`):**
 
 ```yaml
 motion:
-  default_speed_dps: 60    # lower = gentler
-  max_steps: 40            # more micro-steps = smoother
-  min_steps: 12
-  stagger_joints: true     # poses move one joint at a time
-
-joints:
-  - name: shoulder
-    max_speed: 35           # cap heavy joints individually
-  - name: elbow
-    max_speed: 40
+  default_speed_dps: 90
+  profile: linear          # steady speed — no acceleration spikes
+  max_deg_per_step: 2.0    # small increments per tick
+  stagger_joints: false    # all joints together = mechanically stable
 ```
 
 ```bash
-poetry run roboarm pose ready              # staggered (default, gentlest)
-poetry run roboarm pose ready --together   # all joints at once (faster, harder)
-poetry run roboarm move shoulder 60 --speed 25
+poetry run roboarm pose ready --speed 60    # coordinated, moderate speed
+poetry run roboarm move shoulder 60 --speed 40
 ```
+
+Only use `--stagger` if the Pi browns out from current — not for smoothness.
 
 **Hardware (often the real fix):**
 
-- Use a **5 V / 5 A+** supply on PCA9685 `V+` (not the Pi's 5 V pin).
-- Add a **1000 µF capacitor** across the screw-terminal `V+` / `GND`.
+- **5 V / 5 A+** supply on PCA9685 `V+` (not the Pi 5 V pin).
+- **1000 µF capacitor** across screw-terminal `V+` / `GND`.
 - **Common ground** between Pi, PCA9685, and PSU.
-- If the Pi reboots or servos stutter during moves → power supply is too weak.
 
 **While playing:**
 
-- Start at `--speed 25-40`; raise only when motion looks effortless.
-- Shoulder and elbow carry the arm's weight — always move them slower.
+- Lower `--speed` before changing other settings.
 - `roboarm release` if a joint buzzes, strains, or gets hot.
-- Test new poses in mock first: `roboarm --mock pose ready`.
