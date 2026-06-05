@@ -247,7 +247,7 @@ poetry run roboarm move base 30 --speed 45  # at 45°/s
 poetry run roboarm jog base +10           # nudge
 poetry run roboarm sweep base             # sweep range to spot jitter
 poetry run roboarm home                   # smooth move to home
-poetry run roboarm release                # cut torque (limp, no buzzing/heat)
+poetry run roboarm release                # fully disable PWM (limp, movable by hand)
 
 # 3. Live control + calibration.
 poetry run roboarm repl                   # interactive loop

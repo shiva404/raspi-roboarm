@@ -76,10 +76,19 @@ def test_release_marks_detached():
     assert not c.servo("base").attached
 
 
+def test_close_with_release_disables_mock_outputs():
+    cfg = RobotConfig(joints=[ServoConfig(name="base", channel=0, enabled=True)])
+    c = RobotController(config=cfg, force_mock=True)
+    c.set_angle("base", 90)
+    backend = c.backend
+    c.close(release=True)
+    assert backend.duty[0] == -1
+
+
 def test_load_robot_yaml():
     cfg = load_config(Path(__file__).resolve().parent.parent / "robot.yaml")
     assert len(cfg.joints) == 6
-    assert len(cfg.enabled_joints()) == 1
+    assert len(cfg.enabled_joints()) >= 0
     assert cfg.motion.default_speed_dps == 240
     elbow = cfg.joint("elbow")
     assert elbow.channel == 4

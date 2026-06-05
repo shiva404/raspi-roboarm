@@ -205,7 +205,7 @@ class RobotController:
             if release:
                 self.release_all()
         finally:
-            self.backend.deinit()
+            self.backend.deinit(disable_outputs=bool(release))
 
     def __enter__(self) -> "RobotController":
         return self

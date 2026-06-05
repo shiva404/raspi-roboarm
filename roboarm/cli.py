@@ -254,7 +254,9 @@ def release(ctx: Ctx):
     c = ctx.controller()
     try:
         c.release_all()
-        console.print("[green]all servos released[/]")
+        console.print(
+            "[green]all servos released[/] — outputs disabled; you can move them by hand"
+        )
     finally:
         ctx.close(release=True)
 

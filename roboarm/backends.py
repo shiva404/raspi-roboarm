@@ -34,8 +34,11 @@ class PWMBackend(ABC):
         """Set raw 16-bit duty cycle (0..65535) on a channel."""
 
     @abstractmethod
-    def deinit(self) -> None:
-        """Release the bus / driver."""
+    def deinit(self, disable_outputs: bool = False) -> None:
+        """Release the bus / driver.
+
+        If ``disable_outputs`` is True, fully turn off PWM channels first (limp servos).
+        """
 
     # ---- Shared helpers ----------------------------------------------------
 
@@ -61,8 +64,12 @@ class PWMBackend(ABC):
         self.set_duty(channel, duty)
 
     def release(self, channel: int) -> None:
-        """Stop driving a channel so the servo goes limp (0 duty)."""
-        log.debug("ch%02d <- release (0 duty)", channel)
+        """Stop driving a channel so the servo goes limp."""
+        self._disable_channel(channel)
+
+    def _disable_channel(self, channel: int) -> None:
+        """Fully disable a PWM channel (subclass implements hardware-specific off)."""
+        log.debug("ch%02d <- release (output disabled)", channel)
         self.set_duty(channel, 0)
 
     @property
@@ -87,8 +94,15 @@ class MockBackend(PWMBackend):
     def set_duty(self, channel: int, duty16: int) -> None:
         self.duty[channel] = duty16
 
-    def deinit(self) -> None:
-        log.debug("MockBackend.deinit()")
+    def _disable_channel(self, channel: int) -> None:
+        log.debug("ch%02d <- release (disabled)", channel)
+        self.duty[channel] = -1
+
+    def deinit(self, disable_outputs: bool = False) -> None:
+        if disable_outputs:
+            for ch in self.duty:
+                self.duty[ch] = -1
+        log.debug("MockBackend.deinit(disable_outputs=%s)", disable_outputs)
 
 
 class PCA9685Backend(PWMBackend):
@@ -114,6 +128,20 @@ class PCA9685Backend(PWMBackend):
     def set_duty(self, channel: int, duty16: int) -> None:
         self._pca.channels[channel].duty_cycle = duty16
 
+    def _disable_channel(self, channel: int) -> None:
+        """Fully disable PCA9685 output (high-Z), not 0° hold torque.
+
+        A 0 µs-equivalent PWM still commands the servo to its minimum angle with
+        full holding torque. The Adafruit driver uses LED_OFF=0x1000 for true off.
+        """
+        log.debug("ch%02d <- release (PCA9685 output disabled)", channel)
+        self._pca.channels[channel].duty_cycle = 0
+        # Older/newer driver builds: force register-level fully-off.
+        try:
+            self._pca.pwm_regs[channel] = (0, 0x1000)
+        except (AttributeError, TypeError, IndexError):
+            pass
+
     def scan(self) -> list[int]:
         """Return I2C addresses currently visible on the bus."""
         while not self._i2c.try_lock():
@@ -123,14 +151,20 @@ class PCA9685Backend(PWMBackend):
         finally:
             self._i2c.unlock()
 
-    def deinit(self) -> None:
+    def deinit(self, disable_outputs: bool = False) -> None:
+        if disable_outputs:
+            for ch in range(16):
+                try:
+                    self._disable_channel(ch)
+                except Exception as exc:  # pragma: no cover - hardware dependent
+                    log.debug("disable ch%02d failed: %s", ch, exc)
         try:
-            self._pca.deinit()
-        finally:
-            try:
+            if self._i2c is not None:
                 self._i2c.deinit()
-            except Exception:  # pragma: no cover - best effort cleanup
-                pass
+        except Exception:  # pragma: no cover - best effort cleanup
+            pass
+        # Do NOT call self._pca.deinit() — its reset() can re-drive outputs and
+        # lock servos again right after release.
 
 
 def hardware_import_error() -> str | None:

@@ -22,14 +22,14 @@ motion:
 joints:
   - name: base
     channel: 0
-    enabled: true
+    enabled: false
     min: 0
     max: 180
     resting: 90
 
   - name: shoulder
     channel: 2
-    enabled: true
+    enabled: false
     min: 0
     max: 160
     resting: 0
