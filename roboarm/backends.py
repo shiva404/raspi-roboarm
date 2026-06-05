@@ -133,16 +133,23 @@ class PCA9685Backend(PWMBackend):
                 pass
 
 
-def hardware_available() -> bool:
-    """True if the CircuitPython PCA9685 stack imports on this machine."""
+def hardware_import_error() -> str | None:
+    """Return an import error message, or None if the stack is importable."""
     try:
         import adafruit_pca9685  # type: ignore  # noqa: F401
         import board  # type: ignore  # noqa: F401
 
-        return True
+        return None
     except Exception as exc:  # pragma: no cover - depends on platform
-        log.debug("Hardware stack unavailable: %s", exc)
-        return False
+        return f"{type(exc).__name__}: {exc}"
+
+
+def hardware_available() -> bool:
+    """True if the CircuitPython PCA9685 stack imports on this machine."""
+    err = hardware_import_error()
+    if err:
+        log.debug("Hardware stack unavailable: %s", err)
+    return err is None
 
 
 def make_backend(

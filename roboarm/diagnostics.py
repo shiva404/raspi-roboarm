@@ -13,7 +13,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 
-from .backends import PCA9685Backend, hardware_available, make_backend
+from .backends import PCA9685Backend, hardware_available, hardware_import_error, make_backend
 from .logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -86,15 +86,21 @@ def run_health_checks(address: int = 0x40) -> list[Check]:
     )
 
     hw = hardware_available()
-    checks.append(
-        Check(
-            "CircuitPython stack",
-            hw,
-            "adafruit_pca9685 + board import OK"
-            if hw
-            else "not importable (install with: poetry install -E hardware)",
+    import_err = hardware_import_error()
+    if hw:
+        hw_detail = "adafruit_pca9685 + board import OK"
+    elif pi:
+        hw_detail = (
+            f"not importable — {import_err}. "
+            "Run: poetry install  (hardware deps auto-install on Linux). "
+            "If still failing: poetry run python -c \"import board\""
         )
-    )
+    else:
+        hw_detail = (
+            f"not importable — {import_err}. "
+            "Expected on macOS/Windows (MOCK mode). On Pi, run: poetry install"
+        )
+    checks.append(Check("CircuitPython stack", hw, hw_detail))
 
     has_i2cdetect = shutil.which("i2cdetect") is not None
     checks.append(

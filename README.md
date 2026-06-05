@@ -191,11 +191,21 @@ On a laptop (development / mock mode):
 poetry install
 ```
 
-On the Raspberry Pi (real hardware) — also install the hardware extra:
+On the Raspberry Pi (real hardware) — same command; Adafruit/I2C libs
+auto-install on Linux:
 
 ```bash
-poetry install -E hardware
+poetry install
 sudo apt install -y i2c-tools   # optional, for raw `i2cdetect`
+```
+
+If `roboarm doctor` still reports the CircuitPython stack as FAIL after
+`poetry install`, reinstall into a fresh venv:
+
+```bash
+poetry env remove --all
+poetry install
+poetry run python -c "import board; print('OK')"
 ```
 
 ## Quick start

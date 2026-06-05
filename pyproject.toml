@@ -12,19 +12,11 @@ click = "^8.1.7"
 rich = "^13.7.1"
 pyyaml = "^6.0.2"
 
-# Hardware-only dependencies. These import native I2C drivers that only exist
-# on a Raspberry Pi (Linux). They are kept optional so the project installs and
-# runs in MOCK mode on a laptop (macOS/Windows) for development & debugging.
-adafruit-blinka = { version = "^8.0", optional = true }
-adafruit-circuitpython-pca9685 = { version = "^3.4.0", optional = true }
-adafruit-circuitpython-busdevice = { version = "^5.2.0", optional = true }
-
-[tool.poetry.extras]
-hardware = [
-    "adafruit-blinka",
-    "adafruit-circuitpython-pca9685",
-    "adafruit-circuitpython-busdevice",
-]
+# Hardware stack: auto-installed on Linux (Raspberry Pi). Skipped on macOS/Windows
+# so the project still runs in MOCK mode on a laptop without `-E hardware`.
+adafruit-blinka = { version = "^8.0", markers = "sys_platform == 'linux'" }
+adafruit-circuitpython-pca9685 = { version = "^3.4.0", markers = "sys_platform == 'linux'" }
+adafruit-circuitpython-busdevice = { version = "^5.2.0", markers = "sys_platform == 'linux'" }
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
