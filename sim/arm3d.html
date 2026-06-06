@@ -220,7 +220,8 @@ function mergeYaml(base, override) {
 }
 
 const GEOMETRY_SCALAR_KEYS = [
-  "units", "shoulder_height", "upper_arm", "forearm", "wrist_rot_offset", "hand", "elbow",
+  "units", "shoulder_height", "upper_arm", "forearm", "wrist_rot_offset", "hand",
+  "gripper_offset", "elbow",
 ];
 const GEOMETRY_JOINT_KEYS = ["base", "shoulder", "elbow", "wrist", "wrist_rot"];
 
@@ -306,6 +307,7 @@ function configFromYaml(data) {
       forearm: Number(g.forearm),
       wristRotOffset: Number(g.wrist_rot_offset),
       hand: Number(g.hand),
+      gripperOffset: Number(g.gripper_offset),
       elbowBranch: String(g.elbow),
     },
     maps: {
@@ -391,8 +393,11 @@ function fkFromServo(angles) {
   const rotZ = wristZ + off * Math.sin(perp);
   const tipR = rotR + L.hand * Math.cos(pitch);
   const tipZ = rotZ + L.hand * Math.sin(pitch);
+  const gOff = L.gripperOffset || 0;
   return {
-    x: tipR * Math.cos(az), y: tipR * Math.sin(az), z: tipZ,
+    x: tipR * Math.cos(az) - gOff * Math.sin(az),
+    y: tipR * Math.sin(az) + gOff * Math.cos(az),
+    z: tipZ,
     pitchDeg: deg(pitch), q1, q2, q3, az,
   };
 }
@@ -723,8 +728,9 @@ function update() {
 
   const gl = CONFIG.limits.gripper;
   const open = 1 - (servo.gripper - gl[0]) / (gl[1] - gl[0]);
-  const sep = 6 + open * 20;
-  fingerL.position.z = sep; fingerR.position.z = -sep;
+  const sep = 8 + open * 16;
+  fingerL.position.z = sep;
+  fingerR.position.z = -sep;
 
   const f = fk();
   document.getElementById("rx").textContent = f.x.toFixed(0);
@@ -980,26 +986,31 @@ const wristRotLabel = makeLabel("wrist_rot +" + L.wristRotOffset + " " + UNIT);
 wristRotLabel.position.set(0, VIS.motor * 0.5, 0);
 wristRotGroup.add(wristRotLabel);
 
-const handLink = makeLink(L.hand, matLink);
+// hand length in FK = wrist_rot → gripper tip. Beam is proximal; gripper occupies the distal end.
+const GRIP_DEPTH = 32;
+const handBeam = Math.max(30, L.hand - GRIP_DEPTH);
+const handLink = makeLink(handBeam, matLink);
 wristRotGroup.add(handLink);
 const handLabel = makeLabel("hand " + L.hand + " " + UNIT);
 handLabel.position.set(L.hand / 2, VIS.motor * 0.45, 0);
 wristRotGroup.add(handLabel);
 
+// Tip frame at L.hand + lateral offset (+Y kin = +Z Three).
 gripperGroup = new THREE.Group();
-gripperGroup.position.x = L.hand;
+gripperGroup.position.set(L.hand, 0, L.gripperOffset || 0);
 wristRotGroup.add(gripperGroup);
 const palm = addShadow(new THREE.Mesh(new THREE.BoxGeometry(20, 36, 36), matGrip));
+palm.position.x = -22;
 gripperGroup.add(palm);
-fingerL = addShadow(new THREE.Mesh(new THREE.BoxGeometry(40, 8, 10), matGrip));
-fingerR = addShadow(new THREE.Mesh(new THREE.BoxGeometry(40, 8, 10), matGrip));
-fingerL.position.x = 26; fingerR.position.x = 26;
+fingerL = addShadow(new THREE.Mesh(new THREE.BoxGeometry(18, 10, 12), matGrip));
+fingerR = addShadow(new THREE.Mesh(new THREE.BoxGeometry(18, 10, 12), matGrip));
+fingerL.position.set(-9, 0, 12);
+fingerR.position.set(-9, 0, -12);
 gripperGroup.add(fingerL); gripperGroup.add(fingerR);
 
-// tip marker
 tipMarker = new THREE.Mesh(new THREE.SphereGeometry(7, 16, 16), matAccent);
+tipMarker.position.set(0, 0, 0);
 gripperGroup.add(tipMarker);
-tipMarker.position.x = 20;
 
 initAngleViz();
 

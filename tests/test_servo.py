@@ -386,6 +386,7 @@ def _test_geometry(**overrides) -> "ArmGeometry":
         "forearm": 100,
         "wrist_rot_offset": 0,
         "hand": 60,
+        "gripper_offset": 0,
         "elbow": "up",
         "joints": {
             "base": {"zero_deg": 90, "sign": 1},
@@ -403,6 +404,16 @@ def _test_geometry(**overrides) -> "ArmGeometry":
     geom = geometry_from_dict(data)
     assert isinstance(geom, ArmGeometry)
     return geom
+
+
+def test_gripper_offset_shifts_tip_left():
+    from roboarm.kinematics import forward_kinematics
+
+    angles = {"base": 90, "shoulder": 60, "elbow": 90, "wrist": 90}
+    center = forward_kinematics(_test_geometry(gripper_offset=0), angles)
+    offset = forward_kinematics(_test_geometry(gripper_offset=10), angles)
+    assert abs(offset["y"] - center["y"] - 10) < 1e-6
+    assert abs(offset["x"] - center["x"]) < 1e-6
 
 
 def test_wrist_rot_offset_shifts_tip():
@@ -533,7 +544,7 @@ def test_geometry_from_dict_requires_keys():
     with pytest.raises(ValueError, match="wrist_rot"):
         geometry_from_dict({
             "units": "mm", "shoulder_height": 1, "upper_arm": 1, "forearm": 1, "hand": 1,
-            "wrist_rot_offset": 0, "elbow": "up",
+            "wrist_rot_offset": 0, "gripper_offset": 0, "elbow": "up",
             "joints": {
                 "base": {"zero_deg": 0, "sign": 1},
                 "shoulder": {"zero_deg": 0, "sign": 1},
@@ -547,11 +558,12 @@ def test_geometry_loads_from_robot_yaml():
     cfg = load_config(Path(__file__).resolve().parent.parent / "robot.yaml")
     g = cfg.geometry
     assert g is not None
-    assert g.shoulder_height == 100
+    assert g.shoulder_height == 95
     assert g.upper_arm == 105
     assert g.forearm == 100
-    assert g.wrist_rot_offset == 50
-    assert g.hand == 150
+    assert g.wrist_rot_offset == 30
+    assert g.hand == 140
+    assert g.gripper_offset == -10
     assert g.elbow == "down"
     assert g.units == "mm"
     assert g.base_map.zero_deg == 90

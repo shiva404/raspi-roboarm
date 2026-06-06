@@ -196,6 +196,7 @@ _GEOMETRY_SCALAR_KEYS = (
     "forearm",
     "wrist_rot_offset",
     "hand",
+    "gripper_offset",
     "elbow",
 )
 _GEOMETRY_JOINT_KEYS = ("base", "shoulder", "elbow", "wrist", "wrist_rot")
@@ -235,6 +236,7 @@ def geometry_from_dict(d: dict | None) -> ArmGeometry | None:
         forearm=float(_require_geometry_key(d, "forearm")),
         wrist_rot_offset=float(_require_geometry_key(d, "wrist_rot_offset")),
         hand=float(_require_geometry_key(d, "hand")),
+        gripper_offset=float(_require_geometry_key(d, "gripper_offset")),
         elbow=str(_require_geometry_key(d, "elbow")),
         base_map=_joint_map_from_dict(joints["base"]),
         shoulder_map=_joint_map_from_dict(joints["shoulder"]),

@@ -85,6 +85,7 @@ class ArmGeometry:
     forearm: float
     hand: float
     wrist_rot_offset: float
+    gripper_offset: float
     units: str
     elbow: str
     base_map: JointMap = field(default_factory=JointMap)
@@ -154,6 +155,26 @@ def _planar_two_link(
     return q1, q2, dist, reachable
 
 
+def _tip_xy_from_centerline(
+    az: float, tip_r: float, gripper_offset: float
+) -> tuple[float, float]:
+    """Centerline tip in the arm plane -> world x,y (+Y = left for positive offset)."""
+    return (
+        tip_r * math.cos(az) - gripper_offset * math.sin(az),
+        tip_r * math.sin(az) + gripper_offset * math.cos(az),
+    )
+
+
+def _centerline_from_tip_xy(
+    x: float, y: float, gripper_offset: float
+) -> tuple[float, float]:
+    """World tip x,y -> centerline reach r and azimuth for IK."""
+    az = math.atan2(y, x)
+    cx = x + gripper_offset * math.sin(az)
+    cy = y - gripper_offset * math.cos(az)
+    return math.hypot(cx, cy), math.atan2(cy, cx)
+
+
 def _wrist_rot_from_pitch(
     wrist_r: float, wrist_z: float, theta_arm: float, q3: float, offset: float
 ) -> tuple[float, float]:
@@ -185,9 +206,8 @@ def solve_ik(
     warnings: list[str] = []
     elbow = (elbow or geom.elbow or "up").lower()
 
-    # 1) Base azimuth + horizontal reach.
-    azimuth = math.atan2(y, x)
-    r = math.hypot(x, y)
+    # 1) Base azimuth + horizontal reach (tip target -> centerline for IK).
+    r, azimuth = _centerline_from_tip_xy(x, y, geom.gripper_offset)
 
     off = geom.wrist_rot_offset
     reachable = True
@@ -275,9 +295,10 @@ def forward_kinematics(geom: ArmGeometry, servo_angles: dict[str, float]) -> dic
         "wrist": math.degrees(q3),
     }
 
+    tip_x, tip_y = _tip_xy_from_centerline(az, tip_r, geom.gripper_offset)
     return {
-        "x": tip_r * math.cos(az),
-        "y": tip_r * math.sin(az),
+        "x": tip_x,
+        "y": tip_y,
         "z": tip_z,
         "wrist": (
             wrist_r * math.cos(az),
