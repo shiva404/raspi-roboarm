@@ -99,10 +99,10 @@ geometry:
   shoulder_height: 100     # table up to the shoulder joint axis  (MEASURE)
   upper_arm: 105          # shoulder axis -> elbow axis           (MEASURE)
   forearm: 100            # elbow axis -> wrist axis              (MEASURE)
-  hand: 155                # wrist axis -> gripper tip             (MEASURE)
+  hand: 150                # wrist axis -> gripper tip             (MEASURE)
   elbow: up               # default elbow bend: up or down
   joints:
     base:     { zero_deg: 90, sign: 1 }   # servo 90 = pointing forward
     shoulder: { zero_deg: 0,  sign: 1 }
     elbow:    { zero_deg: 45, sign: 1 }
-    wrist:    { zero_deg: 90, sign: -1 }  # servo up -> hand folds toward elbow
+    wrist:    { zero_deg: 90, sign: 1 }  # servo up -> hand folds toward elbow
