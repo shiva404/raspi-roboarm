@@ -105,4 +105,4 @@ geometry:
     base:     { zero_deg: 90, sign: 1 }   # servo 90 = pointing forward
     shoulder: { zero_deg: 0,  sign: 1 }
     elbow:    { zero_deg: 45, sign: 1 }
-    wrist:    { zero_deg: 90, sign: 1 }
+    wrist:    { zero_deg: 90, sign: -1 }  # servo up -> hand folds toward elbow
