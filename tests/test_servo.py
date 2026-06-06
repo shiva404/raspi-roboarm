@@ -94,9 +94,9 @@ def test_load_robot_yaml():
     assert cfg.motion.profile == "linear"
     elbow = cfg.joint("elbow")
     assert elbow.channel == 4
-    assert elbow.soft_min_angle == 75
-    assert elbow.soft_max_angle == 180
-    assert elbow.home_angle == 75
+    assert elbow.soft_min_angle == 30
+    assert elbow.soft_max_angle == 150
+    assert elbow.home_angle == 30
     shoulder = cfg.joint("shoulder")
     assert shoulder.home_angle == 0
     assert shoulder.soft_max_angle == 180

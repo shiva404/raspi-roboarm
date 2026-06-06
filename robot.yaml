@@ -40,9 +40,9 @@ joints:
   - name: elbow
     channel: 4
     enabled: true
-    min: 75
-    max: 180
-    resting: 75
+    min: 30
+    max: 150
+    resting: 30
 
   - name: wrist
     channel: 6
@@ -104,6 +104,6 @@ geometry:
   joints:
     base:     { zero_deg: 90, sign: 1 }    # servo 90 = pointing forward
     shoulder: { zero_deg: 180, sign: -1 }  # kin = 180 − servo°  (0→180, 60→120, 180→0)
-    elbow:    { zero_deg: 180, sign: 1 }   # kin = servo − 180°  (inverted horn, bends down)
+    elbow:    { zero_deg: 150, sign: 1 }   # kin = servo − 150° — tune zero_deg only, not joints.min
     wrist:    { zero_deg: 0, sign: -1 }    # tuned: ready wrist 90° servo = -90° kin
     wrist_rot: { zero_deg: 90, sign: 1 }  # servo 90 = no roll
