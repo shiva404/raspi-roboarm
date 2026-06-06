@@ -1,7 +1,7 @@
 """Central logging configuration.
 
-One place to control how chatty the whole stack is. Use ``-v`` / ``-vv`` on the
-CLI, or set the ``ROBOARM_LOG`` environment variable (DEBUG/INFO/WARNING/...).
+One place to control how chatty the whole stack is. Use ``-v`` / ``-vv`` / ``-vvv``
+on the CLI, or set the ``ROBOARM_LOG`` environment variable (DEBUG/INFO/WARNING/...).
 """
 
 from __future__ import annotations
@@ -10,6 +10,10 @@ import logging
 import os
 
 from rich.logging import RichHandler
+
+# Finer than DEBUG — every interpolation tick (roboarm -vvv).
+TRACE = 5
+logging.addLevelName(TRACE, "TRACE")
 
 _CONFIGURED = False
 

@@ -49,6 +49,27 @@ def test_elbow_custom_range():
     assert cfg.angle_to_pulse_us(160) == 2500
 
 
+def test_trace_angle_reports_clamp_and_pulse_map():
+    cfg = ServoConfig(
+        name="elbow",
+        channel=4,
+        min_angle=95,
+        max_angle=180,
+        soft_min_angle=95,
+        soft_max_angle=180,
+        min_pulse_us=500,
+        max_pulse_us=2500,
+        pulse_min_angle=55,
+        pulse_max_angle=180,
+    )
+    t = cfg.trace_angle(80)
+    assert t["clamped"] == 95
+    assert t["clamped_travel"] is True
+    assert t["pulse_us"] == 1140.0
+    assert "clamp" in cfg.format_trace(80)
+    assert "no pulse anchors" not in cfg.format_trace(80)
+
+
 def test_pulse_anchors_decouple_travel_limits_from_pulse_map():
     """min_pulse was recorded at 55°; raising joints.min must not re-use 500µs at 80°."""
     cfg = ServoConfig(

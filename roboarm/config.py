@@ -9,12 +9,16 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import yaml
 
 from .kinematics import ArmGeometry, JointMap
+from .logging_setup import get_logger
+
+log = get_logger(__name__)
 
 # --- PCA9685 board defaults -------------------------------------------------
 
@@ -67,6 +71,46 @@ class ServoConfig:
         lo = self.pulse_min_angle if self.pulse_min_angle is not None else self.min_angle
         hi = self.pulse_max_angle if self.pulse_max_angle is not None else self.max_angle
         return lo, hi
+
+    def trace_angle(self, angle: float) -> dict[str, float | bool]:
+        """Break down commanded angle → clamp → pulse map → µs (for verbose logs)."""
+        requested = float(angle)
+        clamped = self.clamp_angle(requested)
+        pulse_lo, pulse_hi = self._pulse_span_angles()
+        mapped = clamped
+        if self.invert:
+            mapped = pulse_lo + pulse_hi - mapped
+        span = pulse_hi - pulse_lo
+        frac = 0.0 if span == 0 else max(0.0, min(1.0, (mapped - pulse_lo) / span))
+        pulse_us = self.min_pulse_us + frac * (self.max_pulse_us - self.min_pulse_us)
+        return {
+            "requested": requested,
+            "clamped": clamped,
+            "soft_lo": self.soft_min_angle,
+            "soft_hi": self.soft_max_angle,
+            "pulse_lo": pulse_lo,
+            "pulse_hi": pulse_hi,
+            "frac": frac,
+            "pulse_us": pulse_us,
+            "clamped_travel": clamped != requested,
+            "has_pulse_anchors": (
+                self.pulse_min_angle is not None or self.pulse_max_angle is not None
+            ),
+        }
+
+    def format_trace(self, angle: float) -> str:
+        t = self.trace_angle(angle)
+        parts = [f"req {t['requested']:.1f}°"]
+        if t["clamped_travel"]:
+            parts.append(f"clamp→{t['clamped']:.1f}°")
+        else:
+            parts.append(f"→{t['clamped']:.1f}°")
+        map_note = f"map {t['pulse_lo']:.0f}..{t['pulse_hi']:.0f}°"
+        if not t["has_pulse_anchors"]:
+            map_note += " [no pulse anchors — uses joints.min/max]"
+        parts.append(f"{map_note} frac={t['frac']:.3f}")
+        parts.append(f"pulse {t['pulse_us']:.0f}µs")
+        return " ".join(parts)
 
     def angle_to_pulse_us(self, angle: float) -> float:
         angle = self.clamp_angle(angle)
@@ -369,6 +413,42 @@ def save_calibration_override(
     return out
 
 
+def log_config_summary(cfg: RobotConfig, *, config_path: Path | None = None) -> None:
+    """Log merged config and per-joint pulse mapping (INFO — use roboarm -v)."""
+    if config_path is not None:
+        log.info("Config: %s", config_path.resolve())
+    cal_path = resolve_calibration_path()
+    if cal_path.exists():
+        log.info("Calibration override: %s", cal_path.resolve())
+    else:
+        log.warning(
+            "No robot.calibration.yaml — pulse widths use defaults; "
+            "run `roboarm calibrate <joint>` on the Pi."
+        )
+    for j in cfg.joints:
+        if not j.enabled:
+            log.info("[%s] ch%d disabled", j.name, j.channel)
+            continue
+        lo, hi = j._pulse_span_angles()
+        anchor = (
+            f"pulse anchors {lo:.0f}..{hi:.0f}°"
+            if j.pulse_min_angle is not None or j.pulse_max_angle is not None
+            else f"pulse map tied to limits {lo:.0f}..{hi:.0f}° [no cal anchors]"
+        )
+        log.info(
+            "[%s] ch%d travel %.0f..%.0f° resting %.0f° | %s | µs %d..%d",
+            j.name,
+            j.channel,
+            j.soft_min_angle,
+            j.soft_max_angle,
+            j.home_angle,
+            anchor,
+            j.min_pulse_us,
+            j.max_pulse_us,
+        )
+        log.info("[%s] home trace: %s", j.name, j.format_trace(j.home_angle))
+
+
 def load_config(path: str | Path | None = None) -> RobotConfig:
     """Load ``robot.yaml`` merged with ``robot.calibration.yaml`` if present."""
     p = resolve_config_path(path)
@@ -378,7 +458,10 @@ def load_config(path: str | Path | None = None) -> RobotConfig:
             cal_path = resolve_calibration_path()
             if cal_path.exists():
                 data = _merge_yaml_configs(data, _load_yaml_dict(cal_path))
-            return RobotConfig.from_yaml_data(data)
+            cfg = RobotConfig.from_yaml_data(data)
+            if log.isEnabledFor(logging.INFO):
+                log_config_summary(cfg, config_path=p)
+            return cfg
         return RobotConfig.from_json(p)
 
     legacy = Path.cwd() / LEGACY_CALIBRATION_FILE

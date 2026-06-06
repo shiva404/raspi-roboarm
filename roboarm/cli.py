@@ -19,8 +19,11 @@ Run ``roboarm --help`` to see everything. Highlights:
     roboarm repl            # live interactive control loop
     roboarm demo            # smooth motion showcase
 
-Force simulation anywhere with ``--mock`` (or ``ROBOARM_MOCK=1``). Add ``-v`` /
-``-vv`` for INFO / DEBUG logging (every pulse width is logged at DEBUG).
+Force simulation anywhere with ``--mock`` (or ``ROBOARM_MOCK=1``). Verbose logging:
+
+    -v     INFO  — config, pulse maps, each move plan + final angles/µs
+    -vv    DEBUG — every PWM write + interpolation timing
+    -vvv   TRACE — every interpolation step (very chatty)
 """
 
 from __future__ import annotations
@@ -33,7 +36,7 @@ from rich.table import Table
 
 from .config import load_config, resolve_calibration_path, save_calibration_override
 from .controller import RobotController
-from .logging_setup import configure_logging, get_logger
+from .logging_setup import TRACE, configure_logging, get_logger
 
 console = Console()
 log = get_logger(__name__)
@@ -66,7 +69,12 @@ pass_ctx = click.make_pass_decorator(Ctx)
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
-@click.option("-v", "--verbose", count=True, help="-v INFO, -vv DEBUG (logs every pulse).")
+@click.option(
+    "-v",
+    "--verbose",
+    count=True,
+    help="-v move trace, -vv every PWM, -vvv every interpolation step.",
+)
 @click.option("--mock/--no-mock", default=None, help="Force simulation / force real hardware.")
 @click.option("--address", type=lambda x: int(x, 0), default=None, help="PCA9685 I2C address, e.g. 0x40.")
 @click.option(
@@ -86,8 +94,10 @@ def cli(
     level = logging.WARNING
     if verbose == 1:
         level = logging.INFO
-    elif verbose >= 2:
+    elif verbose == 2:
         level = logging.DEBUG
+    elif verbose >= 3:
+        level = TRACE
     configure_logging(level)
     click_ctx.obj = Ctx(mock=mock, address=address, release_on_exit=release_on_exit)
 
@@ -206,7 +216,9 @@ def jog(ctx: Ctx, joint: str, delta: float, speed):
     """Nudge JOINT by DELTA degrees (e.g. +5 or -10)."""
     c = ctx.controller()
     try:
-        target = c.servo(joint).angle + delta
+        current = c.servo(joint).angle
+        target = current + delta
+        log.info("jog [%s] %.1f° %+g → %.1f°", joint, current, delta, target)
         c.move_to(joint, target, speed_dps=speed)
         console.print(f"[green]{joint} -> {c.servo(joint).angle:.1f} deg[/]")
     finally:

@@ -44,16 +44,13 @@ class Servo:
     def write_angle(self, angle: float) -> float:
         """Immediately command an angle (clamped to soft limits)."""
         clamped = self.cfg.clamp_angle(angle)
-        if clamped != angle:
-            log.debug(
-                "[%s] angle %.1f clamped to %.1f (soft limits %.1f..%.1f)",
-                self.name,
-                angle,
-                clamped,
-                self.cfg.soft_min_angle,
-                self.cfg.soft_max_angle,
-            )
         pulse = self.cfg.angle_to_pulse_us(clamped)
+        log.debug(
+            "[%s] ch%d PWM write | %s",
+            self.name,
+            self.channel,
+            self.cfg.format_trace(angle),
+        )
         self.backend.set_pulse_us(self.channel, pulse)
         self._angle = clamped
         self._attached = True

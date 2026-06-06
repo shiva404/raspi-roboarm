@@ -10,13 +10,14 @@ exactly what a multi-joint arm needs.
 
 from __future__ import annotations
 
+import logging
 import math
 import time
 from contextlib import contextmanager
 
 from .backends import PWMBackend, make_backend
 from .config import RobotConfig
-from .logging_setup import get_logger
+from .logging_setup import TRACE, get_logger
 from .servo import Servo
 from .state import load_angles, save_angles
 
@@ -75,6 +76,8 @@ class RobotController:
             log.warning("No enabled joints — set enabled: true in robot.yaml.")
 
         self._restore_state()
+        if log.isEnabledFor(logging.INFO):
+            self._log_startup_state()
         if motion.attach_on_start:
             self.attach_all()
 
@@ -337,10 +340,9 @@ class RobotController:
         duration_s = max(duration_s, steps / self.update_hz)
 
         dt = duration_s / steps
+        self._log_move_plan("move", targets, starts=starts)
         log.debug(
-            "move %s -> %s over %.2fs (%d steps, %.1f deg/step, profile=%s)",
-            starts,
-            targets,
+            "interpolate %.2fs %d steps max %.2f°/step profile=%s",
             duration_s,
             steps,
             max_delta / steps,
@@ -350,10 +352,31 @@ class RobotController:
         for i in range(1, steps + 1):
             f = motion_blend(i / steps, self.profile)
             for name in targets:
-                self.servo(name).write_angle(starts[name] + deltas[name] * f)
+                angle = starts[name] + deltas[name] * f
+                if log.isEnabledFor(TRACE):
+                    t = self.servo(name).cfg.trace_angle(angle)
+                    log.log(
+                        TRACE,
+                        "  step %d/%d [%s] %.1f° → %.0fµs",
+                        i,
+                        steps,
+                        name,
+                        angle,
+                        t["pulse_us"],
+                    )
+                self.servo(name).write_angle(angle)
             if i < steps and dt > 0:
                 time.sleep(dt)
 
+        if log.isEnabledFor(logging.INFO):
+            for name in targets:
+                s = self.servo(name)
+                log.info(
+                    "done [%s] %.1f° | %s",
+                    name,
+                    s.angle,
+                    s.cfg.format_trace(s.angle),
+                )
         self._persist_state()
 
     # --- helpers ------------------------------------------------------------
@@ -399,6 +422,7 @@ class RobotController:
         if not targets:
             log.warning("Pose %r has no targets for enabled joints.", name)
             return {}
+        log.info("pose %r targets: %s", name, targets)
         self.move_many(
             targets,
             speed_dps=speed_dps,
@@ -479,6 +503,49 @@ class RobotController:
                 "pulse_us": round(s.cfg.angle_to_pulse_us(s.angle), 1),
             }
         return out
+
+    def _log_startup_state(self) -> None:
+        saved = load_angles()
+        if saved:
+            log.info("Restored angles from .roboarm_state.json: %s", saved)
+        else:
+            log.info("No .roboarm_state.json — using resting/home angles from yaml")
+        for name, s in self.servos.items():
+            src = "state" if name in saved else "yaml resting"
+            log.info(
+                "startup [%s] %.1f° (%s) | %s",
+                name,
+                s.angle,
+                src,
+                s.cfg.format_trace(s.angle),
+            )
+
+    def _log_move_plan(
+        self,
+        label: str,
+        targets: dict[str, float],
+        *,
+        starts: dict[str, float] | None = None,
+        raw: dict[str, float] | None = None,
+    ) -> None:
+        if not log.isEnabledFor(logging.INFO):
+            return
+        for name, target in targets.items():
+            s = self.servo(name)
+            start = starts[name] if starts is not None else s.angle
+            req_note = ""
+            if raw is not None and raw.get(name) != target:
+                req_note = f" (requested {raw[name]:.1f}°)"
+            log.info(
+                "%s [%s] %.1f° → %.1f°%s | start %s | target %s",
+                label,
+                name,
+                start,
+                target,
+                req_note,
+                s.cfg.format_trace(start),
+                s.cfg.format_trace(target),
+            )
 
     def _restore_state(self) -> None:
         saved = load_angles()
