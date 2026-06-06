@@ -49,6 +49,39 @@ def test_elbow_custom_range():
     assert cfg.angle_to_pulse_us(160) == 2500
 
 
+def test_pulse_anchors_decouple_travel_limits_from_pulse_map():
+    """min_pulse was recorded at 55°; raising joints.min must not re-use 500µs at 80°."""
+    cfg = ServoConfig(
+        name="elbow",
+        channel=4,
+        min_angle=80,
+        max_angle=180,
+        soft_min_angle=80,
+        soft_max_angle=180,
+        min_pulse_us=500,
+        max_pulse_us=2500,
+        pulse_min_angle=55,
+        pulse_max_angle=180,
+    )
+    # 55 is below soft_min 80 — clamped before pulse map (old bug sent 500µs here)
+    assert cfg.angle_to_pulse_us(55) == 900
+    assert cfg.angle_to_pulse_us(80) == 900
+    assert cfg.angle_to_pulse_us(95) == 1140
+    assert cfg.angle_to_pulse_us(180) == 2500
+
+    broken = ServoConfig(
+        name="elbow",
+        channel=4,
+        min_angle=80,
+        max_angle=180,
+        soft_min_angle=80,
+        soft_max_angle=180,
+        min_pulse_us=500,
+        max_pulse_us=2500,
+    )
+    assert broken.angle_to_pulse_us(80) == 500  # wrongly ties min_pulse to new joints.min
+
+
 def test_pulse_to_duty_50hz():
     backend = MockBackend(freq_hz=50)
     assert backend.pulse_us_to_duty16(1500) == round(1500 / 20000 * 0xFFFF)
@@ -94,9 +127,9 @@ def test_load_robot_yaml():
     assert cfg.motion.profile == "linear"
     elbow = cfg.joint("elbow")
     assert elbow.channel == 4
-    assert elbow.soft_min_angle == 80
+    assert elbow.soft_min_angle == 95
     assert elbow.soft_max_angle == 180
-    assert elbow.home_angle == 80
+    assert elbow.home_angle == 95
     shoulder = cfg.joint("shoulder")
     assert shoulder.home_angle == 0
     assert shoulder.soft_max_angle == 180

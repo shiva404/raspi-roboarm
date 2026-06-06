@@ -15,6 +15,17 @@ joints:
     channel: 0
     min_pulse_us: 520
     max_pulse_us: 2480
+    pulse_min_angle: 0
+    pulse_max_angle: 180
+
+  # elbow: pulse_min_angle is the joints.min when you pressed 's' during calibrate.
+  # Keep it even if you later raise joints.min — pulse map stays correct.
+  # - name: elbow
+  #   channel: 4
+  #   min_pulse_us: 500
+  #   max_pulse_us: 2649
+  #   pulse_min_angle: 55
+  #   pulse_max_angle: 180
 
   # - name: shoulder
   #   channel: 2

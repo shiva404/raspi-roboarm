@@ -36,6 +36,11 @@ class ServoConfig:
 
     min_pulse_us: int = 500
     max_pulse_us: int = 2500
+    # Software angles (deg) that min/max pulses were recorded at during calibrate.
+    # Pulse mapping uses these — NOT joints.min/max — so raising travel limits
+    # without re-calibrating still sends the correct µs for each horn position.
+    pulse_min_angle: float | None = None
+    pulse_max_angle: float | None = None
 
     min_angle: float = 0.0
     max_angle: float = 180.0
@@ -58,14 +63,21 @@ class ServoConfig:
     def clamp_angle(self, angle: float) -> float:
         return max(self.soft_min_angle, min(self.soft_max_angle, angle))
 
+    def _pulse_span_angles(self) -> tuple[float, float]:
+        lo = self.pulse_min_angle if self.pulse_min_angle is not None else self.min_angle
+        hi = self.pulse_max_angle if self.pulse_max_angle is not None else self.max_angle
+        return lo, hi
+
     def angle_to_pulse_us(self, angle: float) -> float:
         angle = self.clamp_angle(angle)
+        pulse_lo, pulse_hi = self._pulse_span_angles()
         if self.invert:
-            angle = self.min_angle + self.max_angle - angle
-        span_angle = self.max_angle - self.min_angle
+            angle = pulse_lo + pulse_hi - angle
+        span_angle = pulse_hi - pulse_lo
         if span_angle == 0:
             return self.min_pulse_us
-        frac = (angle - self.min_angle) / span_angle
+        frac = (angle - pulse_lo) / span_angle
+        frac = max(0.0, min(1.0, frac))
         return self.min_pulse_us + frac * (self.max_pulse_us - self.min_pulse_us)
 
     def to_yaml_dict(self) -> dict:
@@ -106,6 +118,12 @@ def _servo_from_dict(d: dict) -> ServoConfig:
         channel=int(d["channel"]),
         min_pulse_us=int(d.get("min_pulse_us", 500)),
         max_pulse_us=int(d.get("max_pulse_us", 2500)),
+        pulse_min_angle=(
+            float(d["pulse_min_angle"]) if d.get("pulse_min_angle") is not None else None
+        ),
+        pulse_max_angle=(
+            float(d["pulse_max_angle"]) if d.get("pulse_max_angle") is not None else None
+        ),
         min_angle=float(lo),
         max_angle=float(hi),
         soft_min_angle=float(d.get("soft_min_angle", lo)),
@@ -318,7 +336,10 @@ def save_calibration_override(
     entry["max_pulse_us"] = int(max_pulse_us)
     if base_config is not None:
         try:
-            entry["channel"] = base_config.joint(joint_name).channel
+            j = base_config.joint(joint_name)
+            entry["channel"] = j.channel
+            entry["pulse_min_angle"] = j.soft_min_angle
+            entry["pulse_max_angle"] = j.soft_max_angle
         except KeyError:
             pass
     joints[joint_name] = entry

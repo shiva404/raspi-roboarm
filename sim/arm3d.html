@@ -230,10 +230,12 @@ function clampAngle(angle, j) {
 
 function angleToPulseUs(angle, j) {
   let a = clampAngle(angle, j);
-  if (j.invert) a = j.min + j.max - a;
-  const span = j.max - j.min;
+  const pulseLo = j.pulseMin != null ? j.pulseMin : j.min;
+  const pulseHi = j.pulseMax != null ? j.pulseMax : j.max;
+  if (j.invert) a = pulseLo + pulseHi - a;
+  const span = pulseHi - pulseLo;
   if (span === 0) return j.minPulse;
-  const frac = (a - j.min) / span;
+  const frac = Math.max(0, Math.min(1, (a - pulseLo) / span));
   return j.minPulse + frac * (j.maxPulse - j.minPulse);
 }
 
@@ -252,6 +254,8 @@ function configFromYaml(data) {
       name: j.name,
       min,
       max,
+      pulseMin: j.pulse_min_angle != null ? Number(j.pulse_min_angle) : null,
+      pulseMax: j.pulse_max_angle != null ? Number(j.pulse_max_angle) : null,
       resting: resting[j.name],
       minPulse: Number(j.min_pulse_us ?? 500),
       maxPulse: Number(j.max_pulse_us ?? 2500),
