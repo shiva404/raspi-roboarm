@@ -77,6 +77,44 @@
   .source.err { color: #e85d5d; }
   #loading { position: fixed; inset: 0; display: grid; place-items: center; background: var(--bg);
     font-size: 14px; color: var(--text-dim); z-index: 20; }
+
+  .cal-panel { position: fixed; top: 64px; left: 58px; width: 292px; max-height: calc(100vh - 88px);
+    overflow-y: auto; background: rgba(17,22,31,0.94); border: 1px solid var(--panel-line);
+    border-radius: 10px; padding: 12px 14px; display: none; z-index: 5; }
+  .cal-panel.open { display: block; }
+  .cal-panel h2 { margin: 0 0 8px; font-size: 10px; letter-spacing: 2px; color: var(--text-dim);
+    text-transform: uppercase; font-weight: 600; }
+  .cal-panel .intro { font-size: 10px; color: var(--text-dim); line-height: 1.45; margin-bottom: 10px; }
+  .cal-panel .intro b { color: var(--warn); }
+  .cal-panel select { width: 100%; margin-bottom: 10px; font: inherit; font-size: 12px;
+    background: #1a212c; color: var(--text); border: 1px solid var(--panel-line); border-radius: 6px; padding: 6px 8px; }
+  .pipe { margin: 10px 0; border: 1px solid var(--panel-line); border-radius: 8px; overflow: hidden; }
+  .pipe-step { padding: 8px 10px; border-bottom: 1px solid var(--panel-line); font-size: 10px; }
+  .pipe-step:last-child { border-bottom: none; }
+  .pipe-step .tag { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 3px; }
+  .pipe-step .big { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .pipe-step.servo { background: rgba(78,161,255,0.08); }
+  .pipe-step.servo .big { color: var(--accent); }
+  .pipe-step.clamp { background: rgba(93,232,138,0.06); }
+  .pipe-step.clamp .big { color: #5de88a; }
+  .pipe-step.kin { background: rgba(240,160,64,0.1); }
+  .pipe-step.kin .big { color: var(--warn); }
+  .pipe-step.mesh { background: rgba(200,208,218,0.06); }
+  .pipe-arrow { text-align: center; font-size: 10px; color: var(--text-dim); padding: 2px 0; }
+  .cal-row { margin-bottom: 10px; }
+  .cal-row .lbl { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim); margin-bottom: 4px; }
+  .cal-row .lbl b { color: var(--text); font-weight: 600; }
+  .cal-row .hint { font-size: 9px; color: var(--text-dim); margin-top: 2px; }
+  .sign-btns { display: flex; gap: 6px; }
+  .sign-btns button { flex: 1; font: inherit; font-size: 11px; padding: 5px; border-radius: 6px;
+    border: 1px solid var(--panel-line); background: #1a212c; color: var(--text); cursor: pointer; }
+  .sign-btns button.active { border-color: var(--warn); color: var(--warn); }
+  .cal-actions { display: flex; gap: 6px; margin-top: 10px; }
+  .cal-actions button { flex: 1; font: inherit; font-size: 10px; padding: 6px 8px; border-radius: 6px;
+    border: 1px solid var(--panel-line); background: #1a212c; color: var(--text); cursor: pointer; }
+  .cal-actions button:hover { border-color: var(--accent-dim); }
+  .yaml-ref { margin-top: 8px; font-size: 9px; color: var(--text-dim); padding-top: 8px;
+    border-top: 1px solid var(--panel-line); font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
@@ -95,6 +133,21 @@
   <button id="reloadCfg" title="Reload robot.yaml">&#x21bb;</button>
   <button id="toggleAngles" title="Toggle angle measurement lines">&#x2220;</button>
   <button id="toggleFreeSwing" title="Free swing −180…180 (off = robot.yaml min/max)">&#x21c4;</button>
+  <button id="toggleCalLab" title="Angle mapping lab (min vs zero_deg)">&#x2699;</button>
+</div>
+
+<div class="cal-panel" id="calPanel">
+  <h2>Angle mapping lab</h2>
+  <p class="intro"><b>joints.min</b> = mechanical limit (Pi clamps here). <b>geometry.zero_deg</b> = where kinematic 0° sits on the horn — this <em>rotates the 3D arm</em>. Changing min alone does not fix a wrong pose; tune zero_deg.</p>
+  <select id="calJoint"></select>
+  <div class="pipe" id="calPipe"></div>
+  <h2>Adjust (live preview)</h2>
+  <div id="calControls"></div>
+  <div class="cal-actions">
+    <button type="button" id="calResetJoint">Reset joint</button>
+    <button type="button" id="calResetAll">Reset all</button>
+  </div>
+  <div class="yaml-ref" id="calYamlRef"></div>
 </div>
 
 <div class="panel">
@@ -253,7 +306,21 @@ async function loadRobotConfig() {
     const calRes = await fetch(CAL_PATH);
     if (calRes.ok) merged = mergeYaml(base, yaml.load(await calRes.text()));
   } catch (_) { /* calibration optional */ }
-  return configFromYaml(merged);
+  const cfg = configFromYaml(merged);
+  cfg.yamlSnapshot = snapshotConfig(cfg);
+  return cfg;
+}
+
+function snapshotConfig(cfg) {
+  const snap = { limits: {}, servos: {}, maps: {} };
+  for (const [k, [lo, hi]] of Object.entries(cfg.limits)) {
+    snap.limits[k] = [lo, hi];
+    snap.servos[k] = { min: cfg.servos[k].min, max: cfg.servos[k].max, resting: cfg.servos[k].resting };
+  }
+  for (const [k, m] of Object.entries(cfg.maps)) {
+    snap.maps[k] = { zero: m.zero, sign: m.sign };
+  }
+  return snap;
 }
 
 let CONFIG;
@@ -304,6 +371,9 @@ let freeSwing = false;
 const SIM_MIN = -180;
 const SIM_MAX = 180;
 const KIN_JOINTS = new Set(["base", "shoulder", "elbow", "wrist", "wrist_rot"]);
+const CAL_JOINTS = ["shoulder", "elbow", "wrist"];
+let calLabOpen = false;
+let calJoint = "elbow";
 
 function sliderBounds(j) {
   return freeSwing ? [SIM_MIN, SIM_MAX] : CONFIG.limits[j];
@@ -368,6 +438,7 @@ async function bootstrap() {
 
   buildScene();
   buildUI();
+  buildCalLab();
   update();
   animate();
 }
@@ -532,6 +603,7 @@ function update() {
 
   refreshKinReadouts(M);
   refreshGripperPulse();
+  refreshCalLab();
   updateAngleViz(q1, q2, q3, M);
 }
 
@@ -793,6 +865,11 @@ initAngleViz();
     buildUI();
     update();
   });
+  document.getElementById("toggleCalLab").addEventListener("click", () => {
+    calLabOpen = !calLabOpen;
+    document.getElementById("calPanel").classList.toggle("open", calLabOpen);
+    document.getElementById("toggleCalLab").classList.toggle("active", calLabOpen);
+  });
   window.addEventListener("resize", onResize);
 }
 
@@ -812,6 +889,151 @@ function refreshJointUI(j) {
       limEl.className = "limits in-range";
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Calibration lab — min/max vs zero_deg/sign
+// ---------------------------------------------------------------------------
+function applyJointLimits(j, min, max) {
+  min = Math.round(min);
+  max = Math.round(max);
+  if (min >= max) return;
+  CONFIG.servos[j].min = min;
+  CONFIG.servos[j].max = max;
+  CONFIG.limits[j] = [min, max];
+  const s = document.getElementById("s_" + j);
+  if (s && !freeSwing) {
+    s.min = min;
+    s.max = max;
+  }
+  const clamped = setServoAngle(j, servo[j]);
+  if (s) s.value = clamped;
+  if (valEls[j]) valEls[j].textContent = clamped;
+  refreshJointUI(j);
+  update();
+}
+
+function applyJointMap(j, zero, sign) {
+  CONFIG.maps[j].zero = Math.round(zero);
+  CONFIG.maps[j].sign = sign >= 0 ? 1 : -1;
+  update();
+}
+
+function resetCalJoint(j) {
+  const snap = CONFIG.yamlSnapshot;
+  if (!snap || !snap.maps[j]) return;
+  const [lo, hi] = snap.limits[j];
+  CONFIG.servos[j].min = snap.servos[j].min;
+  CONFIG.servos[j].max = snap.servos[j].max;
+  CONFIG.limits[j] = [lo, hi];
+  CONFIG.maps[j].zero = snap.maps[j].zero;
+  CONFIG.maps[j].sign = snap.maps[j].sign;
+}
+
+function resetCalAll() {
+  CAL_JOINTS.forEach(resetCalJoint);
+  buildCalControls();
+  if (!freeSwing) buildUI();
+  else update();
+}
+
+function buildCalControls() {
+  const j = calJoint;
+  const sj = CONFIG.servos[j];
+  const mp = CONFIG.maps[j];
+  const el = document.getElementById("calControls");
+  el.innerHTML =
+    '<div class="cal-row"><div class="lbl"><span>joints.min</span><b id="cv_min">' + sj.min + '°</b></div>' +
+    '<input type="range" id="cal_min" min="0" max="180" step="1" value="' + sj.min + '">' +
+    '<div class="hint">Mechanical stop — Pi refuses to go lower. Does not change 3D bend by itself.</div></div>' +
+    '<div class="cal-row"><div class="lbl"><span>joints.max</span><b id="cv_max">' + sj.max + '°</b></div>' +
+    '<input type="range" id="cal_max" min="0" max="180" step="1" value="' + sj.max + '"></div>' +
+    '<div class="cal-row"><div class="lbl"><span>geometry.zero_deg</span><b id="cv_zero">' + mp.zero + '°</b></div>' +
+    '<input type="range" id="cal_zero" min="-180" max="360" step="1" value="' + mp.zero + '">' +
+    '<div class="hint">Start offset on the horn — <b>this</b> rotates the link in the 3D world.</div></div>' +
+    '<div class="cal-row"><div class="lbl"><span>geometry.sign</span><b id="cv_sign">' + mp.sign + '</b></div>' +
+    '<div class="sign-btns"><button type="button" data-sign="1" class="' + (mp.sign === 1 ? "active" : "") + '">+1</button>' +
+    '<button type="button" data-sign="-1" class="' + (mp.sign === -1 ? "active" : "") + '">−1</button></div>' +
+    '<div class="hint">Flip if the arm bends the mirror way.</div></div>';
+
+  document.getElementById("cal_min").addEventListener("input", (e) => {
+    document.getElementById("cv_min").textContent = e.target.value + "°";
+    applyJointLimits(j, Number(e.target.value), CONFIG.servos[j].max);
+  });
+  document.getElementById("cal_max").addEventListener("input", (e) => {
+    document.getElementById("cv_max").textContent = e.target.value + "°";
+    applyJointLimits(j, CONFIG.servos[j].min, Number(e.target.value));
+  });
+  document.getElementById("cal_zero").addEventListener("input", (e) => {
+    document.getElementById("cv_zero").textContent = e.target.value + "°";
+    applyJointMap(j, Number(e.target.value), CONFIG.maps[j].sign);
+  });
+  el.querySelectorAll(".sign-btns button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const s = Number(btn.dataset.sign);
+      el.querySelectorAll(".sign-btns button").forEach((b) => b.classList.toggle("active", b === btn));
+      document.getElementById("cv_sign").textContent = s;
+      applyJointMap(j, CONFIG.maps[j].zero, s);
+    });
+  });
+}
+
+function refreshCalLab() {
+  if (!calLabOpen || !CONFIG?.maps?.[calJoint]) return;
+  const j = calJoint;
+  const commanded = Number(document.getElementById("s_" + j)?.value ?? servo[j]);
+  const clamped = clampAngle(commanded, CONFIG.servos[j]);
+  const kin = toKin(clamped, CONFIG.maps[j]);
+  const m = CONFIG.maps[j];
+  const snap = CONFIG.yamlSnapshot;
+
+  document.getElementById("calPipe").innerHTML =
+    '<div class="pipe-step servo"><div class="tag">1 · commanded (slider)</div><div class="big">' + commanded + '° servo</div></div>' +
+    '<div class="pipe-arrow">↓ clamp joints.min / max</div>' +
+    '<div class="pipe-step clamp"><div class="tag">2 · after clamp (Pi limit)</div><div class="big">' + clamped + '°</div>' +
+    '<div class="hint">min=' + CONFIG.servos[j].min + ' max=' + CONFIG.servos[j].max +
+    (commanded !== clamped ? ' <b style="color:var(--warn)">clamped!</b>' : '') + '</div></div>' +
+    '<div class="pipe-arrow">↓ (servo − zero_deg) / sign</div>' +
+    '<div class="pipe-step kin"><div class="tag">3 · kinematic° (FK + orange arc)</div><div class="big">' + kin.toFixed(0) + '°</div>' +
+    '<div class="hint">zero=' + m.zero + ' sign=' + m.sign + '</div></div>' +
+    '<div class="pipe-arrow">↓ rotates 3D link</div>' +
+    '<div class="pipe-step mesh"><div class="tag">4 · physical arm in scene</div><div class="big">' + kin.toFixed(0) + '° bend</div></div>';
+
+  if (snap) {
+    const yl = snap.limits[j];
+    const ym = snap.maps[j];
+    const yKin = toKin(clamped, ym);
+    const delta = kin - yKin;
+    document.getElementById("calYamlRef").innerHTML =
+      'robot.yaml file: min=' + yl[0] + ' max=' + yl[1] + ', zero=' + ym.zero + ' sign=' + ym.sign +
+      ' → kin <b>' + yKin.toFixed(0) + '°</b>' +
+      (Math.abs(delta) > 0.5 ? ' &nbsp;|&nbsp; lab Δ <b style="color:var(--warn)">' + (delta > 0 ? '+' : '') + delta.toFixed(0) + '°</b>' : '');
+  }
+}
+
+function buildCalLab() {
+  const sel = document.getElementById("calJoint");
+  sel.innerHTML = "";
+  CAL_JOINTS.forEach((j) => {
+    const o = document.createElement("option");
+    o.value = j;
+    o.textContent = j;
+    if (j === calJoint) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.addEventListener("change", () => {
+    calJoint = sel.value;
+    buildCalControls();
+    refreshCalLab();
+  });
+  document.getElementById("calResetJoint").addEventListener("click", () => {
+    resetCalJoint(calJoint);
+    buildCalControls();
+    if (!freeSwing) buildUI();
+    else update();
+  });
+  document.getElementById("calResetAll").addEventListener("click", resetCalAll);
+  buildCalControls();
 }
 
 // ---------------------------------------------------------------------------
