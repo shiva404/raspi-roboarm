@@ -95,7 +95,7 @@ geometry:
   shoulder_height: 100     # table up to the shoulder joint axis  (MEASURE)
   upper_arm: 105          # shoulder axis -> elbow axis           (MEASURE)
   forearm: 100            # elbow axis -> wrist pitch axis        (MEASURE)
-  wrist_rot_offset: 50    # wrist pitch axis -> wrist_rot axis (+Z in arm plane)
+  wrist_rot_offset: 30    # wrist pitch axis -> wrist_rot axis (+Z in arm plane)
   hand: 150               # wrist_rot axis -> gripper tip         (MEASURE)
   elbow: down             # elbow bends downward on this arm (matches negative kin)
   joints:
