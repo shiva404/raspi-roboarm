@@ -96,10 +96,10 @@ poses:
 #      until the reported (x, y, z) matches reality. Then `reach` will be right.
 geometry:
   units: mm
-  shoulder_height: 80     # table up to the shoulder joint axis  (MEASURE)
+  shoulder_height: 100     # table up to the shoulder joint axis  (MEASURE)
   upper_arm: 105          # shoulder axis -> elbow axis           (MEASURE)
   forearm: 100            # elbow axis -> wrist axis              (MEASURE)
-  hand: 60                # wrist axis -> gripper tip             (MEASURE)
+  hand: 155                # wrist axis -> gripper tip             (MEASURE)
   elbow: up               # default elbow bend: up or down
   joints:
     base:     { zero_deg: 90, sign: 1 }   # servo 90 = pointing forward
