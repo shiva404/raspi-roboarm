@@ -102,7 +102,7 @@ geometry:
   hand: 150                # wrist axis -> gripper tip             (MEASURE)
   elbow: up               # default elbow bend: up or down
   joints:
-    base:     { zero_deg: 90, sign: 1 }   # servo 90 = pointing forward
-    shoulder: { zero_deg: 0,  sign: 1 }
-    elbow:    { zero_deg: 45, sign: 1 }
-    wrist:    { zero_deg: 90, sign: 1 }  # servo up -> hand folds toward elbow
+    base:     { zero_deg: 90, sign: 1 }    # servo 90 = pointing forward
+    shoulder: { zero_deg: -60, sign: 1 }   # tuned: ready shoulder 60° servo = 120° kin
+    elbow:    { zero_deg: 20, sign: -1 }    # tuned: ready elbow 100° servo = -80° kin
+    wrist:    { zero_deg: 0, sign: -1 }    # tuned: ready wrist 90° servo = -90° kin

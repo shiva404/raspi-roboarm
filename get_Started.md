@@ -371,10 +371,10 @@ Each joint maps as `servo = zero_deg + sign * kinematic_angle`:
 
 ```yaml
   joints:
-    base:     { zero_deg: 90, sign: 1 }   # servo 90 = pointing forward (+X)
-    shoulder: { zero_deg: 0,  sign: 1 }   # kinematic 0 = upper arm horizontal
-    elbow:    { zero_deg: 45, sign: 1 }   # kinematic 0 = arm straight
-    wrist:    { zero_deg: 90, sign: 1 }   # kinematic 0 = hand in line w/ forearm
+    base:     { zero_deg: 90, sign: 1 }    # servo 90 = pointing forward (+X)
+    shoulder: { zero_deg: -60, sign: 1 }  # example tuned values — re-measure on your arm
+    elbow:    { zero_deg: 20, sign: -1 }
+    wrist:    { zero_deg: 0, sign: -1 }
 ```
 
 To dial it in: move the arm to a spot you can measure, then run
@@ -385,6 +385,27 @@ poetry run roboarm fk      # prints where it thinks the tip is
 
 Adjust `zero_deg` / `sign` until the reported (x, y, z) matches a tape measure.
 Flip `sign` to `-1` if a joint moves the wrong way. This is the whole tuning job.
+
+#### Tune visually with the 3D simulator
+
+If the numbers are confusing, use the bundled 3D simulator — it draws the arm
+using the **exact same kinematics** and shows the live tip read-out, so you can
+drag each joint and compare the on-screen arm to your real one.
+
+```bash
+# from the project root (ES modules need a server, not file://):
+python3 -m http.server 8753
+# then open in a browser:
+#   http://localhost:8753/sim/arm3d.html
+```
+
+Workflow: pick a pose (e.g. `park`), look at your real arm, and if the 3D arm
+leans the opposite way, flip that joint's `sign`. If it points the right way but
+is rotated off, change its `zero`. The simulator **reads `robot.yaml` live** (and
+merges `robot.calibration.yaml` if present) — edit the file, click the reload
+button (↻) or refresh the page, and the 3D arm updates. Tune under `geometry:`
+until the on-screen arm matches reality; then `roboarm fk` / `reach` use the
+same values.
 
 ### Step 3 — Preview before you move (`--dry-run`)
 

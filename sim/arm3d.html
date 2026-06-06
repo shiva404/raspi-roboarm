@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>raspi-roboarm · 3D joint simulator</title>
+<style>
+  :root {
+    --bg: #0a0e16;
+    --panel: #11161f;
+    --panel-line: #1f2733;
+    --text: #d7dde6;
+    --text-dim: #7d8794;
+    --accent: #4ea1ff;
+    --accent-dim: #2b6cb0;
+    --warn: #f0a040;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--text); }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  .brand { position: fixed; top: 14px; right: 22px; text-align: right; pointer-events: none; }
+  .brand h1 { margin: 0; font-size: 15px; letter-spacing: 2px; font-weight: 600; }
+  .brand .accent { color: var(--accent); }
+  .brand p { margin: 2px 0 0; font-size: 10px; letter-spacing: 3px; color: var(--text-dim); text-transform: uppercase; }
+
+  .panel { position: fixed; top: 64px; right: 18px; width: 268px; background: rgba(17,22,31,0.92);
+    border: 1px solid var(--panel-line); border-radius: 10px; padding: 14px 14px 10px; backdrop-filter: blur(6px); }
+  .panel h2 { margin: 0 0 10px; font-size: 10px; letter-spacing: 2px; color: var(--text-dim);
+    text-transform: uppercase; font-weight: 600; }
+  .joint { margin-bottom: 12px; }
+  .joint .row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+  .joint .name { font-size: 12px; display: flex; align-items: center; gap: 7px; }
+  .joint .name .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); display: inline-block; }
+  .joint .val { font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+  .joint .val b { color: var(--text); font-weight: 600; }
+  .joint.out-of-range .val b { color: var(--warn); }
+  .joint .limits { font-size: 9px; color: var(--text-dim); margin-top: 3px; }
+  .joint .limits.in-range { color: #5de88a; }
+  input[type=range] { -webkit-appearance: none; width: 100%; height: 3px; border-radius: 3px;
+    background: var(--panel-line); outline: none; margin: 0; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px;
+    border-radius: 50%; background: var(--accent); cursor: pointer; border: 2px solid #0a0e16; }
+  input[type=range]::-moz-range-thumb { width: 13px; height: 13px; border-radius: 50%;
+    background: var(--accent); cursor: pointer; border: 2px solid #0a0e16; }
+
+  .poses { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 12px; }
+  .poses button, .toolbar button { font: inherit; font-size: 11px; color: var(--text);
+    background: #1a212c; border: 1px solid var(--panel-line); border-radius: 6px; padding: 4px 9px; cursor: pointer; }
+  .poses button:hover, .toolbar button:hover { border-color: var(--accent-dim); color: #fff; }
+
+  .toolbar { position: fixed; top: 14px; left: 14px; display: flex; flex-direction: column; gap: 8px; }
+  .toolbar button { width: 34px; height: 34px; display: grid; place-items: center; padding: 0; border-radius: 8px; }
+
+  .readout { position: fixed; left: 16px; bottom: 16px; background: rgba(17,22,31,0.92);
+    border: 1px solid var(--panel-line); border-radius: 10px; padding: 12px 14px; min-width: 230px; }
+  .readout h2 { margin: 0 0 8px; font-size: 10px; letter-spacing: 2px; color: var(--text-dim);
+    text-transform: uppercase; font-weight: 600; }
+  .readout .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .readout .cell .v { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .readout .cell .u { font-size: 11px; color: var(--text-dim); font-weight: 400; }
+  .readout .cell .l { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+  .readout .dims { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--panel-line);
+    font-size: 10px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+  .readout .dims span { color: var(--accent); font-weight: 600; }
+  .readout .note { margin-top: 9px; font-size: 10px; color: var(--text-dim); }
+  .readout .note b { color: var(--warn); }
+  .hint { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); font-size: 11px;
+    color: var(--text-dim); pointer-events: none; }
+  .source { position: fixed; top: 42px; right: 22px; font-size: 10px; color: var(--text-dim);
+    pointer-events: none; text-align: right; max-width: 280px; }
+  .source.ok { color: #5de88a; }
+  .source.err { color: #e85d5d; }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; background: var(--bg);
+    font-size: 14px; color: var(--text-dim); z-index: 20; }
+</style>
+</head>
+<body>
+<div id="loading">Loading robot.yaml…</div>
+<div id="app"></div>
+
+<div class="brand">
+  <h1>raspi<span class="accent">·</span>roboarm</h1>
+  <p>3D joint simulator</p>
+</div>
+<div class="source" id="source">reading robot.yaml…</div>
+
+<div class="toolbar">
+  <button id="resetView" title="Reset camera">&#x2316;</button>
+  <button id="toggleGrid" title="Toggle grid">&#9783;</button>
+  <button id="reloadCfg" title="Reload robot.yaml">&#x21bb;</button>
+  <button id="toggleAngles" title="Toggle angle measurement lines">&#x2220;</button>
+</div>
+
+<div class="panel">
+  <h2>Poses</h2>
+  <div class="poses" id="poses"></div>
+  <h2>Joint angles (servo°, −180…180)</h2>
+  <div id="sliders"></div>
+</div>
+
+<div class="readout">
+  <h2>Gripper tip — matches <code>roboarm fk</code></h2>
+  <div class="grid">
+    <div class="cell"><div class="v"><span id="rx">0</span><span class="u"> mm</span></div><div class="l">X forward</div></div>
+    <div class="cell"><div class="v"><span id="ry">0</span><span class="u"> mm</span></div><div class="l">Y left</div></div>
+    <div class="cell"><div class="v"><span id="rz">0</span><span class="u"> mm</span></div><div class="l">Z up</div></div>
+    <div class="cell"><div class="v"><span id="rp">0</span><span class="u">°</span></div><div class="l">pitch</div></div>
+  </div>
+  <div class="dims" id="reachLine">reach from base: <span id="reach">0</span> mm</div>
+  <div class="note">Sliders swing <b>−180…180°</b> for tuning. Servo value turns orange outside <code>robot.yaml</code> limit. Orange arcs = kinematic° from dashed gray reference.</div>
+</div>
+
+<div class="hint">drag to orbit · scroll to zoom · right-drag to pan</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/",
+    "js-yaml": "https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.mjs"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
+import yaml from "js-yaml";
+
+// ---------------------------------------------------------------------------
+// Load robot.yaml (+ optional robot.calibration.yaml merge, same as roboarm)
+// ---------------------------------------------------------------------------
+const YAML_PATH = "/robot.yaml";
+const CAL_PATH = "/robot.calibration.yaml";
+
+function mergeYaml(base, override) {
+  if (!override) return base;
+  const out = structuredClone(base);
+  for (const key of ["board", "motion", "geometry", "poses"]) {
+    if (override[key] && typeof override[key] === "object") {
+      out[key] = { ...(out[key] || {}), ...override[key] };
+    }
+  }
+  if (override.geometry?.joints && out.geometry?.joints) {
+    out.geometry.joints = { ...out.geometry.joints, ...override.geometry.joints };
+  }
+  if (override.joints) {
+    const byName = Object.fromEntries((out.joints || []).map((j) => [j.name, { ...j }]));
+    for (const j of override.joints) {
+      if (byName[j.name]) Object.assign(byName[j.name], j);
+      else byName[j.name] = j;
+    }
+    out.joints = Object.values(byName);
+  }
+  return out;
+}
+
+function jointMap(gj, name, resting = 90) {
+  const m = gj?.[name];
+  return {
+    zero: m?.zero_deg != null ? Number(m.zero_deg) : resting,
+    sign: m?.sign != null ? Number(m.sign) : 1,
+  };
+}
+
+function configFromYaml(data) {
+  const g = data.geometry || {};
+  const gj = g.joints || {};
+  const limits = {};
+  const resting = {};
+  for (const j of data.joints || []) {
+    limits[j.name] = [Number(j.min), Number(j.max)];
+    resting[j.name] = Number(j.resting ?? j.home_angle ?? 90);
+  }
+  const defaults = { ...resting };
+  const poses = {};
+  for (const [name, angles] of Object.entries(data.poses || {})) {
+    poses[name] = { ...defaults };
+    for (const [jn, ang] of Object.entries(angles || {})) {
+      poses[name][jn] = Number(ang);
+    }
+  }
+  return {
+    unit: g.units || "mm",
+    lengths: {
+      shoulderHeight: Number(g.shoulder_height ?? 80),
+      upperArm: Number(g.upper_arm ?? 105),
+      forearm: Number(g.forearm ?? 100),
+      hand: Number(g.hand ?? 60),
+    },
+    maps: {
+      base: jointMap(gj, "base", resting.base ?? 90),
+      shoulder: jointMap(gj, "shoulder", resting.shoulder ?? 0),
+      elbow: jointMap(gj, "elbow", resting.elbow ?? 45),
+      wrist: jointMap(gj, "wrist", resting.wrist ?? 90),
+      wrist_rot: jointMap(gj, "wrist_rot", resting.wrist_rot ?? 90),
+    },
+    limits,
+    poses,
+    resting,
+  };
+}
+
+async function loadRobotConfig() {
+  const res = await fetch(YAML_PATH);
+  if (!res.ok) throw new Error("Could not fetch " + YAML_PATH + " (" + res.status + ")");
+  const base = yaml.load(await res.text());
+  let merged = base;
+  try {
+    const calRes = await fetch(CAL_PATH);
+    if (calRes.ok) merged = mergeYaml(base, yaml.load(await calRes.text()));
+  } catch (_) { /* calibration optional */ }
+  return configFromYaml(merged);
+}
+
+let CONFIG;
+let JOINTS;
+let servo;
+
+const toKin = (s, m) => (s - m.zero) / (m.sign === 0 ? 1 : m.sign);
+const rad = (d) => (d * Math.PI) / 180;
+const deg = (r) => (r * 180) / Math.PI;
+let UNIT = "mm";
+
+// HTML label that always faces the camera (for link lengths & axis names).
+function makeLabel(text, cls = "dim-label") {
+  const el = document.createElement("div");
+  el.className = cls;
+  el.textContent = text;
+  return new CSS2DObject(el);
+}
+
+// Forward kinematics identical to roboarm/kinematics.py (for the readout).
+function fk() {
+  const L = CONFIG.lengths, M = CONFIG.maps;
+  const az = rad(toKin(servo.base, M.base));
+  const q1 = rad(toKin(servo.shoulder, M.shoulder));
+  const q2 = rad(toKin(servo.elbow, M.elbow));
+  const q3 = rad(toKin(servo.wrist, M.wrist));
+  const wristR = L.upperArm * Math.cos(q1) + L.forearm * Math.cos(q1 + q2);
+  const wristZ = L.shoulderHeight + L.upperArm * Math.sin(q1) + L.forearm * Math.sin(q1 + q2);
+  const pitch = q1 + q2 + q3;
+  const tipR = wristR + L.hand * Math.cos(pitch);
+  const tipZ = wristZ + L.hand * Math.sin(pitch);
+  return {
+    x: tipR * Math.cos(az), y: tipR * Math.sin(az), z: tipZ,
+    pitchDeg: deg(pitch), q1, q2, q3, az,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Bootstrap — load yaml, then build scene
+// ---------------------------------------------------------------------------
+let scene, camera, controls, renderer, labelRenderer, grid;
+let baseGroup, shoulderGroup, elbowGroup, wristGroup, gripperGroup;
+let fingerL, fingerR, tipMarker, tipCoordLabel, dimX, dimY, dimZ;
+let valEls = {};
+let homeCam;
+let angleGroup, angleLines, angleLabels, showAngles = true;
+const SIM_MIN = -180;
+const SIM_MAX = 180;
+
+async function bootstrap() {
+  const src = document.getElementById("source");
+  try {
+    CONFIG = await loadRobotConfig();
+    src.textContent = "config: robot.yaml" + (await fetch(CAL_PATH).then((r) => r.ok).catch(() => false) ? " + calibration" : "");
+    src.className = "source ok";
+  } catch (err) {
+    src.textContent = String(err.message || err);
+    src.className = "source err";
+    document.getElementById("loading").textContent = "Failed to load robot.yaml — serve from project root.";
+    return;
+  }
+  document.getElementById("loading").style.display = "none";
+
+  UNIT = CONFIG.unit;
+  JOINTS = Object.keys(CONFIG.limits);
+  const startPose = CONFIG.poses.park || CONFIG.poses.home || CONFIG.resting;
+  servo = { ...CONFIG.resting, ...startPose };
+
+  buildScene();
+  buildUI();
+  update();
+  animate();
+}
+
+const tipWorld = new THREE.Vector3();
+const setLine = (line, pts) => {
+  line.geometry.dispose();
+  if (!pts.length) {
+    line.geometry = new THREE.BufferGeometry();
+    line.visible = false;
+    return;
+  }
+  line.visible = true;
+  line.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+  if (line.material.dashSize != null) line.computeLineDistances();
+};
+
+function arcPoints(cx, cy, cz, radius, a0, a1, segs = 22) {
+  const pts = [];
+  const n = Math.max(4, segs);
+  for (let i = 0; i <= n; i++) {
+    const t = a0 + ((a1 - a0) * i) / n;
+    pts.push(new THREE.Vector3(cx + radius * Math.cos(t), cy + radius * Math.sin(t), cz));
+  }
+  return pts;
+}
+
+function mkAngleLine(color, dashed = false) {
+  const mat = dashed
+    ? new THREE.LineDashedMaterial({ color, dashSize: 6, gapSize: 4 })
+    : new THREE.LineBasicMaterial({ color });
+  return new THREE.Line(new THREE.BufferGeometry(), mat);
+}
+
+function initAngleViz() {
+  angleGroup = new THREE.Group();
+  baseGroup.add(angleGroup);
+  angleLines = {
+    shoulder: { ref: mkAngleLine(0x6a7a8a, true), arm: mkAngleLine(0x4ea1ff), arc: mkAngleLine(0xf0a040) },
+    elbow: { ref: mkAngleLine(0x6a7a8a, true), arm: mkAngleLine(0x4ea1ff), arc: mkAngleLine(0xf0a040) },
+    wrist: { ref: mkAngleLine(0x6a7a8a, true), arm: mkAngleLine(0x4ea1ff), arc: mkAngleLine(0xf0a040) },
+  };
+  angleLabels = {};
+  for (const j of ["shoulder", "elbow", "wrist"]) {
+    for (const k of ["ref", "arm", "arc"]) angleGroup.add(angleLines[j][k]);
+    angleLabels[j] = makeLabel("", "angle-label");
+    baseGroup.add(angleLabels[j]);
+  }
+}
+
+function updateAngleViz(q1, q2, q3, M) {
+  if (!angleGroup) return;
+  angleGroup.visible = showAngles;
+  for (const lbl of Object.values(angleLabels)) lbl.visible = showAngles;
+  if (!showAngles) return;
+
+  const L = CONFIG.lengths;
+  const LEN = 50;
+  const ARC = 38;
+  const z = 3;
+  const sh = new THREE.Vector3(0, L.shoulderHeight, z);
+
+  // Shoulder: kinematic angle = upper arm above horizontal (+X)
+  setLine(angleLines.shoulder.ref, [sh, new THREE.Vector3(sh.x + LEN, sh.y, z)]);
+  setLine(angleLines.shoulder.arm, [
+    sh,
+    new THREE.Vector3(sh.x + LEN * Math.cos(q1), sh.y + LEN * Math.sin(q1), z),
+  ]);
+  setLine(angleLines.shoulder.arc, Math.abs(q1) > 0.01 ? arcPoints(sh.x, sh.y, z, ARC, 0, q1) : []);
+  angleLabels.shoulder.element.innerHTML =
+    'shoulder <span class="dim">above horiz</span> <b>' + deg(q1).toFixed(0) + '°</b>' +
+    ' <span class="dim">(servo ' + servo.shoulder + '°)</span>';
+  angleLabels.shoulder.position.set(
+    sh.x + (ARC + 14) * Math.cos(q1 / 2),
+    sh.y + (ARC + 14) * Math.sin(q1 / 2),
+    0
+  );
+
+  // Elbow: kinematic angle = bend between upper arm and forearm
+  const el = new THREE.Vector3(
+    sh.x + L.upperArm * Math.cos(q1),
+    sh.y + L.upperArm * Math.sin(q1),
+    z
+  );
+  const uDir = new THREE.Vector3(Math.cos(q1), Math.sin(q1), 0);
+  const fDir = new THREE.Vector3(Math.cos(q1 + q2), Math.sin(q1 + q2), 0);
+  setLine(angleLines.elbow.ref, [el, el.clone().add(uDir.clone().multiplyScalar(LEN))]);
+  setLine(angleLines.elbow.arm, [el, el.clone().add(fDir.clone().multiplyScalar(LEN))]);
+  setLine(
+    angleLines.elbow.arc,
+    Math.abs(q2) > 0.01 ? arcPoints(el.x, el.y, z, ARC * 0.9, q1, q1 + q2) : []
+  );
+  const elMid = q1 + q2 / 2;
+  angleLabels.elbow.element.innerHTML =
+    'elbow <span class="dim">bend</span> <b>' + deg(q2).toFixed(0) + '°</b>' +
+    ' <span class="dim">(servo ' + servo.elbow + '°, zero ' + M.elbow.zero + '°)</span>';
+  angleLabels.elbow.position.set(
+    el.x + (ARC + 10) * Math.cos(elMid),
+    el.y + (ARC + 10) * Math.sin(elMid),
+    0
+  );
+
+  // Wrist: kinematic angle = hand tilt relative to forearm
+  const wr = new THREE.Vector3(
+    el.x + L.forearm * Math.cos(q1 + q2),
+    el.y + L.forearm * Math.sin(q1 + q2),
+    z
+  );
+  setLine(angleLines.wrist.ref, [wr, wr.clone().add(fDir.clone().multiplyScalar(LEN * 0.85))]);
+  const hDir = new THREE.Vector3(Math.cos(q1 + q2 + q3), Math.sin(q1 + q2 + q3), 0);
+  setLine(angleLines.wrist.arm, [wr, wr.clone().add(hDir.clone().multiplyScalar(LEN * 0.85))]);
+  setLine(
+    angleLines.wrist.arc,
+    Math.abs(q3) > 0.01 ? arcPoints(wr.x, wr.y, z, ARC * 0.75, q1 + q2, q1 + q2 + q3) : []
+  );
+  const wrMid = q1 + q2 + q3 / 2;
+  angleLabels.wrist.element.innerHTML =
+    'wrist <span class="dim">tilt</span> <b>' + deg(q3).toFixed(0) + '°</b>' +
+    ' <span class="dim">(servo ' + servo.wrist + '°, zero ' + M.wrist.zero + '°)</span>';
+  angleLabels.wrist.position.set(
+    wr.x + (ARC + 8) * Math.cos(wrMid),
+    wr.y + (ARC + 8) * Math.sin(wrMid),
+    0
+  );
+}
+
+function update() {
+  const M = CONFIG.maps;
+  const az = rad(toKin(servo.base, M.base));
+  const q1 = rad(toKin(servo.shoulder, M.shoulder));
+  const q2 = rad(toKin(servo.elbow, M.elbow));
+  const q3 = rad(toKin(servo.wrist, M.wrist));
+  const roll = rad(toKin(servo.wrist_rot, M.wrist_rot));
+
+  baseGroup.rotation.y = -az;
+  shoulderGroup.rotation.z = q1;
+  elbowGroup.rotation.z = q2;
+  wristGroup.rotation.z = q3;
+  gripperGroup.rotation.x = roll;
+
+  const gl = CONFIG.limits.gripper;
+  const open = 1 - (servo.gripper - gl[0]) / (gl[1] - gl[0]);
+  const sep = 6 + open * 20;
+  fingerL.position.z = sep; fingerR.position.z = -sep;
+
+  const f = fk();
+  document.getElementById("rx").textContent = f.x.toFixed(0);
+  document.getElementById("ry").textContent = f.y.toFixed(0);
+  document.getElementById("rz").textContent = f.z.toFixed(0);
+  document.getElementById("rp").textContent = f.pitchDeg.toFixed(0);
+  document.getElementById("reach").textContent = Math.hypot(f.x, f.y, f.z).toFixed(0);
+
+  tipMarker.getWorldPosition(tipWorld);
+  const O = new THREE.Vector3(0, 0, 0);
+  const onFloor = new THREE.Vector3(tipWorld.x, 0, tipWorld.z);
+  setLine(dimX, [O, new THREE.Vector3(tipWorld.x, 0, 0)]);
+  setLine(dimY, [new THREE.Vector3(tipWorld.x, 0, 0), onFloor]);
+  setLine(dimZ, [onFloor, tipWorld]);
+  tipCoordLabel.position.copy(tipWorld).add(new THREE.Vector3(0, 18, 0));
+  tipCoordLabel.element.textContent =
+    "(" + f.x.toFixed(0) + ", " + f.y.toFixed(0) + ", " + f.z.toFixed(0) + ") " + UNIT;
+
+  updateAngleViz(q1, q2, q3, M);
+}
+
+function buildScene() {
+const app = document.getElementById("app");
+renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+app.appendChild(renderer.domElement);
+
+labelRenderer = new CSS2DRenderer();
+labelRenderer.setSize(window.innerWidth, window.innerHeight);
+labelRenderer.domElement.style.position = "absolute";
+labelRenderer.domElement.style.top = "0";
+labelRenderer.domElement.style.pointerEvents = "none";
+app.appendChild(labelRenderer.domElement);
+
+// Label styles injected once
+const style = document.createElement("style");
+style.textContent = `
+  .dim-label { color: #d7dde6; font: 600 11px/1 system-ui,sans-serif; padding: 2px 7px;
+    background: rgba(10,14,22,0.82); border: 1px solid #4ea1ff; border-radius: 4px;
+    white-space: nowrap; pointer-events: none; }
+  .axis-label { color: #9fb4cc; font: 600 12px/1 system-ui,sans-serif; padding: 2px 6px;
+    background: rgba(10,14,22,0.7); border-radius: 3px; white-space: nowrap; pointer-events: none; }
+  .coord-label { color: #4ea1ff; font: 600 11px/1 system-ui,sans-serif; padding: 2px 6px;
+    background: rgba(10,14,22,0.85); border: 1px solid #2b6cb0; border-radius: 4px;
+    white-space: nowrap; pointer-events: none; }
+  .angle-label { color: #f0d090; font: 600 10px/1.35 system-ui,sans-serif; padding: 3px 8px;
+    background: rgba(10,14,22,0.9); border: 1px solid #f0a040; border-radius: 4px;
+    white-space: nowrap; pointer-events: none; max-width: 220px; }
+  .angle-label b { color: #fff; }
+  .angle-label .dim { color: #8a9aaa; font-weight: 400; }
+`;
+document.head.appendChild(style);
+
+scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0e16);
+scene.fog = new THREE.Fog(0x0a0e16, 900, 2200);
+
+camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 5000);
+camera.position.set(420, 360, 560);
+
+controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.target.set(60, 130, 0);
+controls.minDistance = 200;
+controls.maxDistance = 1600;
+
+// Lighting
+scene.add(new THREE.HemisphereLight(0x9fb4cc, 0x10141c, 0.55));
+const ambient = new THREE.AmbientLight(0x4a5360, 0.5);
+scene.add(ambient);
+const key = new THREE.DirectionalLight(0xffffff, 1.5);
+key.position.set(300, 600, 400);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.near = 100;
+key.shadow.camera.far = 1600;
+key.shadow.camera.left = -500;
+key.shadow.camera.right = 500;
+key.shadow.camera.top = 500;
+key.shadow.camera.bottom = -500;
+key.shadow.bias = -0.0004;
+scene.add(key);
+const rim = new THREE.DirectionalLight(0x6f9fff, 0.4);
+rim.position.set(-300, 200, -300);
+scene.add(rim);
+
+// Ground
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(4000, 4000),
+  new THREE.MeshStandardMaterial({ color: 0x0e131c, roughness: 0.95, metalness: 0.0 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Grid: 500 mm span, 50 mm per cell (1 world unit = 1 mm)
+grid = new THREE.GridHelper(500, 10, 0x223049, 0x161d28);
+grid.position.y = 0.2;
+scene.add(grid);
+
+// Ground rulers every 50 mm
+for (let i = -200; i <= 400; i += 50) {
+  if (i === 0) continue;
+  const tick = new THREE.Mesh(
+    new THREE.BoxGeometry(i % 100 === 0 ? 2 : 1, 0.5, 6),
+    new THREE.MeshBasicMaterial({ color: 0x3a4a5c })
+  );
+  tick.position.set(i, 0.4, 0);
+  scene.add(tick);
+  if (i % 100 === 0) {
+    const lbl = makeLabel(i + " " + UNIT, "axis-label");
+    lbl.position.set(i, 8, 14);
+    scene.add(lbl);
+  }
+}
+for (let i = 50; i <= 400; i += 50) {
+  const tick = new THREE.Mesh(
+    new THREE.BoxGeometry(6, 0.5, i % 100 === 0 ? 2 : 1),
+    new THREE.MeshBasicMaterial({ color: 0x3a4a5c })
+  );
+  tick.position.set(0, 0.4, i);
+  scene.add(tick);
+}
+
+// Coordinate axes at origin (1 unit = 1 mm)
+const axes = new THREE.Group();
+const axLen = 120;
+const mkArrow = (dir, color, label) => {
+  const arrow = new THREE.ArrowHelper(dir, new THREE.Vector3(0, 0, 0), axLen, color, 14, 8);
+  axes.add(arrow);
+  const lbl = makeLabel(label, "axis-label");
+  lbl.position.copy(dir.clone().multiplyScalar(axLen + 18));
+  axes.add(lbl);
+};
+mkArrow(new THREE.Vector3(1, 0, 0), 0xe85d5d, "+X forward (" + UNIT + ")");
+mkArrow(new THREE.Vector3(0, 1, 0), 0x5de88a, "+Z up (" + UNIT + ")");
+mkArrow(new THREE.Vector3(0, 0, 1), 0x5d9ae8, "+Y left (" + UNIT + ")");
+scene.add(axes);
+
+// Origin marker
+const originDot = new THREE.Mesh(
+  new THREE.SphereGeometry(4, 12, 12),
+  new THREE.MeshBasicMaterial({ color: 0xf0a040 })
+);
+originDot.position.y = 0.5;
+scene.add(originDot);
+const originLbl = makeLabel("origin (0,0,0)", "axis-label");
+originLbl.position.set(0, 14, 0);
+scene.add(originLbl);
+
+// Dimension lines from origin to tip (updated each frame)
+const dimMat = new THREE.LineDashedMaterial({ color: 0x4ea1ff, dashSize: 8, gapSize: 5 });
+dimX = new THREE.Line(new THREE.BufferGeometry(), dimMat);
+dimY = new THREE.Line(new THREE.BufferGeometry(), dimMat);
+dimZ = new THREE.Line(new THREE.BufferGeometry(), dimMat);
+scene.add(dimX, dimY, dimZ);
+tipCoordLabel = makeLabel("", "coord-label");
+scene.add(tipCoordLabel);
+
+// ---------------------------------------------------------------------------
+// Arm meshes — a kinematic chain of nested groups.
+// Convention: build in X (forward) / Y (up) plane; rotate about Z to lift,
+// rotate whole base group about Y for azimuth. Matches the planar FK above.
+// ---------------------------------------------------------------------------
+const L = CONFIG.lengths;
+const metal = (color, m = 0.55, r = 0.45) =>
+  new THREE.MeshStandardMaterial({ color, metalness: m, roughness: r });
+const matLink = metal(0xb7c0cb);
+const matDark = metal(0x2a2f38, 0.6, 0.5);
+const matBase = metal(0x363c46, 0.5, 0.6);
+const matGrip = metal(0xc7d0da, 0.5, 0.4);
+const matAccent = metal(0x4ea1ff, 0.3, 0.5);
+
+function addShadow(mesh) { mesh.castShadow = true; mesh.receiveShadow = true; return mesh; }
+
+// Build a boxy link of given length along +X, thickness t, with a servo block at its base.
+function makeLink(length, t, mat) {
+  const g = new THREE.Group();
+  const beam = addShadow(new THREE.Mesh(new THREE.BoxGeometry(length, t, t * 0.7), mat));
+  beam.position.x = length / 2;
+  g.add(beam);
+  const servoBlock = addShadow(new THREE.Mesh(new THREE.BoxGeometry(t * 1.4, t * 1.5, t * 1.6), matDark));
+  g.add(servoBlock);
+  return g;
+}
+
+baseGroup = new THREE.Group();
+scene.add(baseGroup);
+
+// Base pedestal
+const pedestal = addShadow(new THREE.Mesh(new THREE.CylinderGeometry(46, 56, 40, 28), matBase));
+pedestal.position.y = 20;
+baseGroup.add(pedestal);
+const turretH = L.shoulderHeight - 40;
+const turret = addShadow(new THREE.Mesh(new THREE.CylinderGeometry(34, 40, turretH, 24), matBase));
+turret.position.y = 20 + turretH / 2;
+baseGroup.add(turret);
+const baseHLabel = makeLabel("shoulder " + L.shoulderHeight + " " + UNIT);
+baseHLabel.position.set(52, L.shoulderHeight / 2, 0);
+baseGroup.add(baseHLabel);
+
+// Shoulder pivot at top of base column
+shoulderGroup = new THREE.Group();
+shoulderGroup.position.y = L.shoulderHeight;
+baseGroup.add(shoulderGroup);
+shoulderGroup.add(makeLink(L.upperArm, 34, matLink));
+const upperArmLabel = makeLabel("upper arm " + L.upperArm + " " + UNIT);
+upperArmLabel.position.set(L.upperArm / 2, 22, 0);
+shoulderGroup.add(upperArmLabel);
+
+elbowGroup = new THREE.Group();
+elbowGroup.position.x = L.upperArm;
+shoulderGroup.add(elbowGroup);
+elbowGroup.add(makeLink(L.forearm, 28, matLink));
+const forearmLabel = makeLabel("forearm " + L.forearm + " " + UNIT);
+forearmLabel.position.set(L.forearm / 2, 18, 0);
+elbowGroup.add(forearmLabel);
+
+wristGroup = new THREE.Group();
+wristGroup.position.x = L.forearm;
+elbowGroup.add(wristGroup);
+const handLink = makeLink(L.hand, 22, matLink);
+wristGroup.add(handLink);
+const handLabel = makeLabel("hand " + L.hand + " " + UNIT);
+handLabel.position.set(L.hand / 2, 14, 0);
+wristGroup.add(handLabel);
+
+// wrist_rot + gripper at end of hand
+gripperGroup = new THREE.Group();
+gripperGroup.position.x = L.hand;
+wristGroup.add(gripperGroup);
+const palm = addShadow(new THREE.Mesh(new THREE.BoxGeometry(20, 36, 36), matGrip));
+gripperGroup.add(palm);
+fingerL = addShadow(new THREE.Mesh(new THREE.BoxGeometry(40, 8, 10), matGrip));
+fingerR = addShadow(new THREE.Mesh(new THREE.BoxGeometry(40, 8, 10), matGrip));
+fingerL.position.x = 26; fingerR.position.x = 26;
+gripperGroup.add(fingerL); gripperGroup.add(fingerR);
+
+// tip marker
+tipMarker = new THREE.Mesh(new THREE.SphereGeometry(7, 16, 16), matAccent);
+gripperGroup.add(tipMarker);
+tipMarker.position.x = 20;
+
+initAngleViz();
+
+  homeCam = camera.position.clone();
+  document.getElementById("resetView").addEventListener("click", () => {
+    camera.position.copy(homeCam);
+    controls.target.set(60, 130, 0);
+  });
+  document.getElementById("toggleGrid").addEventListener("click", () => {
+    grid.visible = !grid.visible;
+  });
+  document.getElementById("toggleAngles").addEventListener("click", () => {
+    showAngles = !showAngles;
+    update();
+  });
+  window.addEventListener("resize", onResize);
+}
+
+function refreshJointUI(j) {
+  const [limMin, limMax] = CONFIG.limits[j];
+  const v = servo[j];
+  const inRange = v >= limMin && v <= limMax;
+  const wrap = document.getElementById("joint_" + j);
+  if (wrap) wrap.classList.toggle("out-of-range", !inRange);
+  const limEl = document.getElementById("lim_" + j);
+  if (limEl) {
+    limEl.textContent = "robot limit " + limMin + "–" + limMax + (inRange ? " ✓" : " (unsafe)");
+    limEl.className = "limits" + (inRange ? " in-range" : "");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// UI: sliders + pose buttons
+// ---------------------------------------------------------------------------
+function buildUI() {
+const slidersEl = document.getElementById("sliders");
+slidersEl.innerHTML = "";
+document.getElementById("poses").innerHTML = "";
+valEls = {};
+JOINTS.forEach((j) => {
+  if (servo[j] == null) servo[j] = CONFIG.resting[j] ?? 90;
+  const [limMin, limMax] = CONFIG.limits[j];
+  const wrap = document.createElement("div");
+  wrap.className = "joint";
+  wrap.id = "joint_" + j;
+  wrap.innerHTML =
+    '<div class="row"><span class="name"><span class="dot"></span>' + j + '</span>' +
+    '<span class="val"><b id="v_' + j + '">' + servo[j] + '</b>°</span></div>' +
+    '<input type="range" min="' + SIM_MIN + '" max="' + SIM_MAX + '" step="1" value="' + servo[j] + '" id="s_' + j + '">' +
+    '<div class="limits" id="lim_' + j + '">robot limit ' + limMin + '–' + limMax + '</div>';
+  slidersEl.appendChild(wrap);
+  valEls[j] = document.getElementById("v_" + j);
+  document.getElementById("s_" + j).addEventListener("input", (e) => {
+    servo[j] = Number(e.target.value);
+    valEls[j].textContent = servo[j];
+    refreshJointUI(j);
+    update();
+  });
+  refreshJointUI(j);
+});
+
+function applyPose(name) {
+  const p = CONFIG.poses[name];
+  if (!p) return;
+  JOINTS.forEach((j) => {
+    if (p[j] == null) return;
+    servo[j] = p[j];
+    const s = document.getElementById("s_" + j);
+    if (s) s.value = p[j];
+    if (valEls[j]) valEls[j].textContent = p[j];
+    refreshJointUI(j);
+  });
+  update();
+}
+
+const posesEl = document.getElementById("poses");
+Object.keys(CONFIG.poses).forEach((name) => {
+  const b = document.createElement("button");
+  b.textContent = name;
+  b.addEventListener("click", () => applyPose(name));
+  posesEl.appendChild(b);
+});
+}
+
+// ---------------------------------------------------------------------------
+// Render loop
+// ---------------------------------------------------------------------------
+function onResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  labelRenderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+  labelRenderer.render(scene, camera);
+}
+
+document.getElementById("reloadCfg").addEventListener("click", () => location.reload());
+bootstrap();
+</script>
+</body>
+</html>
