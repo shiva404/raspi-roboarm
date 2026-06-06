@@ -8,6 +8,7 @@ from roboarm.backends import MockBackend
 from roboarm.config import (
     RobotConfig,
     ServoConfig,
+    geometry_from_dict,
     load_config,
     save_calibration_override,
 )
@@ -148,9 +149,9 @@ def test_load_robot_yaml():
     assert cfg.motion.profile == "linear"
     elbow = cfg.joint("elbow")
     assert elbow.channel == 4
-    assert elbow.soft_min_angle == 95
+    assert elbow.soft_min_angle == 30
     assert elbow.soft_max_angle == 180
-    assert elbow.home_angle == cfg.poses["home"]["elbow"] == 110
+    assert elbow.home_angle == cfg.poses["home"]["elbow"] == 45
     shoulder = cfg.joint("shoulder")
     assert shoulder.home_angle == cfg.poses["home"]["shoulder"] == 0
     assert shoulder.soft_max_angle == 180
@@ -374,17 +375,73 @@ def test_save_calibration_override_creates_file(tmp_path):
     assert text2.count("name: base") == 1
 
 
-def test_fk_y_only_changes_with_base_azimuth():
-    from roboarm.kinematics import ArmGeometry, JointMap, forward_kinematics
+def _test_geometry(**overrides) -> "ArmGeometry":
+    """Minimal geometry block for unit tests (mirrors robot.yaml structure)."""
+    from roboarm.kinematics import ArmGeometry
 
-    geom = ArmGeometry(
+    data = {
+        "units": "mm",
+        "shoulder_height": 80,
+        "upper_arm": 105,
+        "forearm": 100,
+        "wrist_rot_offset": 0,
+        "hand": 60,
+        "elbow": "up",
+        "joints": {
+            "base": {"zero_deg": 90, "sign": 1},
+            "shoulder": {"zero_deg": 0, "sign": 1},
+            "elbow": {"zero_deg": 0, "sign": 1},
+            "wrist": {"zero_deg": 0, "sign": -1},
+            "wrist_rot": {"zero_deg": 90, "sign": 1},
+        },
+    }
+    for key, val in overrides.items():
+        if key == "joints":
+            data["joints"].update(val)
+        else:
+            data[key] = val
+    geom = geometry_from_dict(data)
+    assert isinstance(geom, ArmGeometry)
+    return geom
+
+
+def test_wrist_rot_offset_shifts_tip():
+    from roboarm.kinematics import forward_kinematics
+
+    angles = {"base": 90, "shoulder": 60, "elbow": 90, "wrist": 90}
+    base = _test_geometry(
         shoulder_height=100,
-        upper_arm=105,
-        forearm=100,
-        hand=60,
-        base_map=JointMap(zero_deg=90, sign=1),
-        elbow_map=JointMap(zero_deg=45, sign=1),
-        wrist_map=JointMap(zero_deg=90, sign=-1),
+        hand=150,
+        joints={
+            "shoulder": {"zero_deg": 180, "sign": -1},
+            "elbow": {"zero_deg": 180, "sign": 1},
+        },
+    )
+    off = _test_geometry(
+        shoulder_height=100,
+        hand=150,
+        wrist_rot_offset=50,
+        joints={
+            "shoulder": {"zero_deg": 180, "sign": -1},
+            "elbow": {"zero_deg": 180, "sign": 1},
+        },
+    )
+    a = forward_kinematics(base, angles)
+    b = forward_kinematics(off, angles)
+    assert "wrist_rot" in b
+    assert abs(b["z"] - a["z"]) > 1.0
+    assert b["wrist_rot"][2] != b["wrist"][2]
+
+
+def test_fk_y_only_changes_with_base_azimuth():
+    from roboarm.kinematics import forward_kinematics
+
+    geom = _test_geometry(
+        shoulder_height=100,
+        joints={
+            "elbow": {"zero_deg": 45, "sign": 1},
+            "wrist": {"zero_deg": 90, "sign": -1},
+        },
     )
     angles = {"base": 90, "shoulder": 60, "elbow": 100, "wrist": 90}
     center = forward_kinematics(geom, angles)
@@ -398,9 +455,9 @@ def test_fk_y_only_changes_with_base_azimuth():
 
 def test_ik_fk_round_trip():
     """Solve IK for a point, then FK on the result should return that point."""
-    from roboarm.kinematics import ArmGeometry, forward_kinematics, solve_ik
+    from roboarm.kinematics import forward_kinematics, solve_ik
 
-    geom = ArmGeometry(shoulder_height=80, upper_arm=105, forearm=100, hand=60)
+    geom = _test_geometry()
     sol = solve_ik(geom, x=150, y=40, z=130, pitch_deg=-30)
     assert sol.reachable
     tip = forward_kinematics(geom, sol.servo_angles)
@@ -411,39 +468,33 @@ def test_ik_fk_round_trip():
 
 
 def test_ik_unreachable_flagged():
-    from roboarm.kinematics import ArmGeometry, solve_ik
+    from roboarm.kinematics import solve_ik
 
-    geom = ArmGeometry(shoulder_height=80, upper_arm=100, forearm=100)
+    geom = _test_geometry(upper_arm=100, forearm=100)
     sol = solve_ik(geom, x=10000, y=0, z=80)
     assert not sol.reachable
     assert sol.warnings
 
 
 def test_ik_joint_mapping_applied():
-    from roboarm.kinematics import ArmGeometry, JointMap, solve_ik
+    from roboarm.kinematics import solve_ik
 
-    geom = ArmGeometry(
-        upper_arm=100,
-        forearm=100,
-        base_map=JointMap(zero_deg=90, sign=1),
-    )
+    geom = _test_geometry(upper_arm=100, forearm=100)
     # Target on +X means azimuth 0 -> base servo should be exactly zero_deg.
     sol = solve_ik(geom, x=150, y=0, z=geom.shoulder_height)
     assert abs(sol.servo_angles["base"] - 90) < 1e-6
 
 
 def test_elbow_up_down_differ():
-    from roboarm.kinematics import ArmGeometry, solve_ik
+    from roboarm.kinematics import solve_ik
 
-    geom = ArmGeometry(shoulder_height=80, upper_arm=105, forearm=100)
+    geom = _test_geometry()
     up = solve_ik(geom, 150, 0, 130, elbow="up")
     down = solve_ik(geom, 150, 0, 130, elbow="down")
     assert up.kin_angles["elbow"] * down.kin_angles["elbow"] <= 0
 
 
 def test_controller_move_to_xyz_uses_geometry():
-    from roboarm.kinematics import ArmGeometry
-
     cfg = RobotConfig(
         joints=[
             ServoConfig(name="base", channel=0, enabled=True, min_angle=0, max_angle=180,
@@ -453,7 +504,7 @@ def test_controller_move_to_xyz_uses_geometry():
             ServoConfig(name="elbow", channel=4, enabled=True, min_angle=0, max_angle=180,
                         soft_min_angle=-180, soft_max_angle=180),
         ],
-        geometry=ArmGeometry(shoulder_height=80, upper_arm=105, forearm=100),
+        geometry=_test_geometry(),
     )
     c = RobotController(config=cfg, force_mock=True, update_hz=200)
     sol = c.move_to_xyz(150, 0, 130, speed_dps=200)
@@ -471,11 +522,40 @@ def test_controller_reach_without_geometry_raises():
         pass
 
 
+def test_geometry_from_dict_requires_keys():
+    import pytest
+
+    with pytest.raises(ValueError, match="shoulder_height"):
+        geometry_from_dict({
+            "units": "mm", "upper_arm": 1, "forearm": 1, "hand": 1,
+            "wrist_rot_offset": 0, "elbow": "up", "joints": {},
+        })
+    with pytest.raises(ValueError, match="wrist_rot"):
+        geometry_from_dict({
+            "units": "mm", "shoulder_height": 1, "upper_arm": 1, "forearm": 1, "hand": 1,
+            "wrist_rot_offset": 0, "elbow": "up",
+            "joints": {
+                "base": {"zero_deg": 0, "sign": 1},
+                "shoulder": {"zero_deg": 0, "sign": 1},
+                "elbow": {"zero_deg": 0, "sign": 1},
+                "wrist": {"zero_deg": 0, "sign": -1},
+            },
+        })
+
+
 def test_geometry_loads_from_robot_yaml():
     cfg = load_config(Path(__file__).resolve().parent.parent / "robot.yaml")
-    assert cfg.geometry is not None
-    assert cfg.geometry.upper_arm > 0
-    assert cfg.geometry.base_map.zero_deg == 90
+    g = cfg.geometry
+    assert g is not None
+    assert g.shoulder_height == 100
+    assert g.upper_arm == 105
+    assert g.forearm == 100
+    assert g.wrist_rot_offset == 50
+    assert g.hand == 150
+    assert g.elbow == "down"
+    assert g.units == "mm"
+    assert g.base_map.zero_deg == 90
+    assert g.wrist_rot_map.zero_deg == 90
 
 
 def test_close_holds_by_default():

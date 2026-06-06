@@ -74,19 +74,24 @@ class JointMap:
 
 @dataclass
 class ArmGeometry:
-    """Physical dimensions + joint mapping. Measure the lengths on your arm."""
+    """Physical dimensions + joint mapping — loaded from ``robot.yaml`` only.
 
-    units: str = "mm"
-    shoulder_height: float = 80.0   # base/table up to the shoulder joint axis
-    upper_arm: float = 105.0        # shoulder axis -> elbow axis
-    forearm: float = 100.0          # elbow axis -> wrist axis
-    hand: float = 60.0              # wrist axis -> gripper tip
-    elbow: str = "up"               # default branch: "up" or "down"
+    Construct via :func:`roboarm.config.geometry_from_dict`; do not hardcode
+    link lengths or joint maps in application code.
+    """
 
+    shoulder_height: float
+    upper_arm: float
+    forearm: float
+    hand: float
+    wrist_rot_offset: float
+    units: str
+    elbow: str
     base_map: JointMap = field(default_factory=JointMap)
     shoulder_map: JointMap = field(default_factory=JointMap)
     elbow_map: JointMap = field(default_factory=JointMap)
     wrist_map: JointMap = field(default_factory=JointMap)
+    wrist_rot_map: JointMap = field(default_factory=JointMap)
 
 
 @dataclass
@@ -106,6 +111,57 @@ class IKSolution:
 
 def _clamp(v: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, v))
+
+
+def _planar_two_link(
+    geom: ArmGeometry,
+    wrist_r: float,
+    wrist_z: float,
+    elbow: str,
+    warnings: list[str],
+) -> tuple[float, float, float, bool]:
+    """Solve shoulder/elbow for wrist *pitch* point in the arm plane (r, z).
+
+    Returns ``(q1, q2, dist, reachable)`` in radians.
+    """
+    L1, L2 = geom.upper_arm, geom.forearm
+    dx = wrist_r
+    dz = wrist_z - geom.shoulder_height
+    dist = math.hypot(dx, dz)
+    reachable = True
+    reach_max = L1 + L2
+    reach_min = abs(L1 - L2)
+    if dist > reach_max:
+        reachable = False
+        warnings.append(
+            f"target {dist:.1f}{geom.units} away exceeds max reach "
+            f"{reach_max:.1f}{geom.units}; arm will extend toward it"
+        )
+        dist = reach_max - 1e-6
+    elif dist < reach_min:
+        reachable = False
+        warnings.append(
+            f"target {dist:.1f}{geom.units} is closer than min reach "
+            f"{reach_min:.1f}{geom.units}; arm will fold toward it"
+        )
+        dist = reach_min + 1e-6
+
+    cos_q2 = _clamp((dist * dist - L1 * L1 - L2 * L2) / (2 * L1 * L2), -1.0, 1.0)
+    q2 = math.acos(cos_q2)
+    if elbow == "up":
+        q2 = -q2
+    q1 = math.atan2(dz, dx) - math.atan2(L2 * math.sin(q2), L1 + L2 * math.cos(q2))
+    return q1, q2, dist, reachable
+
+
+def _wrist_rot_from_pitch(
+    wrist_r: float, wrist_z: float, theta_arm: float, q3: float, offset: float
+) -> tuple[float, float]:
+    """Wrist_rot axis offset perpendicular to forearm, in the wrist-pitch frame."""
+    if offset == 0.0:
+        return wrist_r, wrist_z
+    perp = theta_arm + math.pi / 2 + q3
+    return wrist_r + offset * math.cos(perp), wrist_z + offset * math.sin(perp)
 
 
 def solve_ik(
@@ -129,51 +185,33 @@ def solve_ik(
     warnings: list[str] = []
     elbow = (elbow or geom.elbow or "up").lower()
 
-    L1, L2 = geom.upper_arm, geom.forearm
-
     # 1) Base azimuth + horizontal reach.
     azimuth = math.atan2(y, x)
     r = math.hypot(x, y)
 
-    # 2) If a pitch is requested, back off the hand length to get the wrist point.
+    off = geom.wrist_rot_offset
+    reachable = True
+
     if pitch_deg is not None:
         p = math.radians(pitch_deg)
-        wrist_r = r - geom.hand * math.cos(p)
-        wrist_z = z - geom.hand * math.sin(p)
+        # Tip -> wrist_rot -> wrist pitch (iterate; offset couples q1/q2 and q3).
+        rot_r = r - geom.hand * math.cos(p)
+        rot_z = z - geom.hand * math.sin(p)
+        wp_r, wp_z = rot_r, rot_z
+        q1 = q2 = q3 = 0.0
+        for _ in range(6):
+            q1, q2, _, reach_ok = _planar_two_link(geom, wp_r, wp_z, elbow, warnings)
+            reachable = reachable and reach_ok
+            theta_arm = q1 + q2
+            q3 = p - theta_arm
+            perp = theta_arm + math.pi / 2 + q3
+            wp_r = rot_r - off * math.cos(perp)
+            wp_z = rot_z - off * math.sin(perp)
     else:
         wrist_r, wrist_z = r, z
-
-    # 3) Planar 2-link IK in the (reach, height) plane, shoulder at origin.
-    dx = wrist_r
-    dz = wrist_z - geom.shoulder_height
-    dist = math.hypot(dx, dz)
-
-    reachable = True
-    reach_max = L1 + L2
-    reach_min = abs(L1 - L2)
-    if dist > reach_max:
-        reachable = False
-        warnings.append(
-            f"target {dist:.1f}{geom.units} away exceeds max reach "
-            f"{reach_max:.1f}{geom.units}; arm will extend toward it"
-        )
-        dist = reach_max - 1e-6
-    elif dist < reach_min:
-        reachable = False
-        warnings.append(
-            f"target {dist:.1f}{geom.units} is closer than min reach "
-            f"{reach_min:.1f}{geom.units}; arm will fold toward it"
-        )
-        dist = reach_min + 1e-6
-
-    cos_q2 = (dist * dist - L1 * L1 - L2 * L2) / (2 * L1 * L2)
-    cos_q2 = _clamp(cos_q2, -1.0, 1.0)
-    q2 = math.acos(cos_q2)  # interior bend, 0..pi
-    if elbow == "up":
-        q2 = -q2  # elbow above the shoulder->wrist line
-
-    # Shoulder angle above horizontal.
-    q1 = math.atan2(dz, dx) - math.atan2(L2 * math.sin(q2), L1 + L2 * math.cos(q2))
+        q1, q2, _, reach_ok = _planar_two_link(geom, wrist_r, wrist_z, elbow, warnings)
+        reachable = reachable and reach_ok
+        q3 = 0.0
 
     kin = {
         "base": math.degrees(azimuth),
@@ -186,9 +224,7 @@ def solve_ik(
         "elbow": geom.elbow_map.to_servo(kin["elbow"]),
     }
 
-    # 4) Wrist holds the requested world pitch: q1 + q2 + q3 = pitch.
     if pitch_deg is not None:
-        q3 = math.radians(pitch_deg) - (q1 + q2)
         kin["wrist"] = math.degrees(q3)
         servo["wrist"] = geom.wrist_map.to_servo(kin["wrist"])
 
@@ -219,14 +255,17 @@ def forward_kinematics(geom: ArmGeometry, servo_angles: dict[str, float]) -> dic
     wrist_r = L1 * math.cos(q1) + L2 * math.cos(q1 + q2)
     wrist_z = geom.shoulder_height + L1 * math.sin(q1) + L2 * math.sin(q1 + q2)
 
-    # Hand pitch only matters if a wrist joint mapping/angle is available.
     if "wrist" in servo_angles:
         q3 = math.radians(geom.wrist_map.to_kin(servo_angles["wrist"]))
     else:
         q3 = 0.0
-    pitch = q1 + q2 + q3
-    tip_r = wrist_r + geom.hand * math.cos(pitch)
-    tip_z = wrist_z + geom.hand * math.sin(pitch)
+    theta_arm = q1 + q2
+    pitch = theta_arm + q3
+    rot_r, rot_z = _wrist_rot_from_pitch(
+        wrist_r, wrist_z, theta_arm, q3, geom.wrist_rot_offset
+    )
+    tip_r = rot_r + geom.hand * math.cos(pitch)
+    tip_z = rot_z + geom.hand * math.sin(pitch)
 
     az_deg = math.degrees(az)
     kin = {
@@ -244,6 +283,11 @@ def forward_kinematics(geom: ArmGeometry, servo_angles: dict[str, float]) -> dic
             wrist_r * math.cos(az),
             wrist_r * math.sin(az),
             wrist_z,
+        ),
+        "wrist_rot": (
+            rot_r * math.cos(az),
+            rot_r * math.sin(az),
+            rot_z,
         ),
         "pitch_deg": math.degrees(pitch),
         "azimuth_deg": az_deg,

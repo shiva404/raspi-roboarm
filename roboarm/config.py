@@ -189,23 +189,63 @@ def _joint_map_from_dict(d: dict | None) -> JointMap:
     )
 
 
-def _geometry_from_dict(d: dict | None) -> ArmGeometry | None:
-    """Build ArmGeometry from the optional ``geometry:`` section of robot.yaml."""
+_GEOMETRY_SCALAR_KEYS = (
+    "units",
+    "shoulder_height",
+    "upper_arm",
+    "forearm",
+    "wrist_rot_offset",
+    "hand",
+    "elbow",
+)
+_GEOMETRY_JOINT_KEYS = ("base", "shoulder", "elbow", "wrist", "wrist_rot")
+
+
+def _require_geometry_key(d: dict, key: str) -> object:
+    if key not in d:
+        raise ValueError(
+            f"robot.yaml geometry: missing required key '{key}'. "
+            "All link lengths and joints.* maps must be defined in robot.yaml."
+        )
+    return d[key]
+
+
+def geometry_from_dict(d: dict | None) -> ArmGeometry | None:
+    """Build :class:`~roboarm.kinematics.ArmGeometry` from ``robot.yaml`` ``geometry:``.
+
+    When the section is present, every scalar and ``joints.*`` entry is required —
+    no hardcoded fallbacks. Returns ``None`` only if ``geometry:`` is omitted entirely.
+    """
     if not d:
         return None
-    joints = d.get("joints", {}) or {}
+    for key in _GEOMETRY_SCALAR_KEYS:
+        _require_geometry_key(d, key)
+    joints = d.get("joints")
+    if not isinstance(joints, dict):
+        raise ValueError("robot.yaml geometry: missing required 'joints' mapping block.")
+    for jn in _GEOMETRY_JOINT_KEYS:
+        if jn not in joints:
+            raise ValueError(
+                f"robot.yaml geometry.joints: missing required joint '{jn}'."
+            )
     return ArmGeometry(
-        units=str(d.get("units", "mm")),
-        shoulder_height=float(d.get("shoulder_height", 80.0)),
-        upper_arm=float(d.get("upper_arm", 105.0)),
-        forearm=float(d.get("forearm", 100.0)),
-        hand=float(d.get("hand", 60.0)),
-        elbow=str(d.get("elbow", "up")),
-        base_map=_joint_map_from_dict(joints.get("base")),
-        shoulder_map=_joint_map_from_dict(joints.get("shoulder")),
-        elbow_map=_joint_map_from_dict(joints.get("elbow")),
-        wrist_map=_joint_map_from_dict(joints.get("wrist")),
+        units=str(_require_geometry_key(d, "units")),
+        shoulder_height=float(_require_geometry_key(d, "shoulder_height")),
+        upper_arm=float(_require_geometry_key(d, "upper_arm")),
+        forearm=float(_require_geometry_key(d, "forearm")),
+        wrist_rot_offset=float(_require_geometry_key(d, "wrist_rot_offset")),
+        hand=float(_require_geometry_key(d, "hand")),
+        elbow=str(_require_geometry_key(d, "elbow")),
+        base_map=_joint_map_from_dict(joints["base"]),
+        shoulder_map=_joint_map_from_dict(joints["shoulder"]),
+        elbow_map=_joint_map_from_dict(joints["elbow"]),
+        wrist_map=_joint_map_from_dict(joints["wrist"]),
+        wrist_rot_map=_joint_map_from_dict(joints["wrist_rot"]),
     )
+
+
+# Backward-compatible alias for internal callers.
+_geometry_from_dict = geometry_from_dict
 
 
 def _apply_home_angles(
@@ -315,7 +355,7 @@ class RobotConfig:
             joints=joints,
             motion=_motion_from_dict(data.get("motion")),
             poses=poses,
-            geometry=_geometry_from_dict(data.get("geometry")),
+            geometry=geometry_from_dict(data.get("geometry")),
         )
 
     @classmethod

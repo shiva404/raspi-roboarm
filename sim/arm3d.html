@@ -41,6 +41,7 @@
   .joint .limits.in-range { color: #5de88a; }
   .joint .kin { font-size: 10px; color: var(--warn); font-weight: 600; }
   .toolbar button.active { border-color: var(--warn); color: var(--warn); }
+  .toolbar button.reach-on { border-color: var(--accent); color: var(--accent); }
   input[type=range] { -webkit-appearance: none; width: 100%; height: 3px; border-radius: 3px;
     background: var(--panel-line); outline: none; margin: 0; }
   input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px;
@@ -52,6 +53,8 @@
   .poses button, .toolbar button { font: inherit; font-size: 11px; color: var(--text);
     background: #1a212c; border: 1px solid var(--panel-line); border-radius: 6px; padding: 4px 9px; cursor: pointer; }
   .poses button:hover, .toolbar button:hover { border-color: var(--accent-dim); color: #fff; }
+  .poses button.active { background: rgba(78, 161, 255, 0.2); border-color: var(--accent);
+    color: #fff; box-shadow: 0 0 0 1px rgba(78, 161, 255, 0.4); }
 
   .toolbar { position: fixed; top: 14px; left: 14px; display: flex; flex-direction: column; gap: 8px; }
   .toolbar button { width: 34px; height: 34px; display: grid; place-items: center; padding: 0; border-radius: 8px; }
@@ -134,6 +137,7 @@
   <button id="toggleAngles" title="Toggle angle measurement lines">&#x2220;</button>
   <button id="toggleFreeSwing" title="Free swing −180…180 (off = robot.yaml min/max)">&#x21c4;</button>
   <button id="toggleCalLab" title="Angle mapping lab (min vs zero_deg)">&#x2699;</button>
+  <button id="toggleReach" class="reach-on" title="Reachability envelope (joint limits from robot.yaml)">&#x25CE;</button>
 </div>
 
 <div class="cal-panel" id="calPanel">
@@ -166,7 +170,7 @@
     <div class="cell"><div class="v"><span id="rp">0</span><span class="u">°</span></div><div class="l">pitch</div></div>
   </div>
   <div class="dims" id="reachLine">reach from base: <span id="reach">0</span> mm</div>
-  <div class="note">Same pipeline as Pi: <b>servo°</b> → clamp (<code>min/max</code>) → pulse (<code>robot.calibration.yaml</code>) → link rotation (<code>geometry.joints</code>). Sliders = commanded servo°. Orange arcs = kinematic bend driving the mesh.</div>
+  <div class="note">Same pipeline as Pi: <b>servo°</b> → clamp (<code>min/max</code>) → pulse (<code>robot.calibration.yaml</code>) → link rotation (<code>geometry.joints</code>). Sliders = commanded servo°. Orange arcs = kinematic bend driving the mesh. Blue/green cloud = reachable tip positions from <code>joints.min/max</code> (toggle ⊙).</div>
 </div>
 
 <div class="hint">drag to orbit · scroll to zoom · right-drag to pan</div>
@@ -215,12 +219,30 @@ function mergeYaml(base, override) {
   return out;
 }
 
-function jointMap(gj, name, resting = 90) {
-  const m = gj?.[name];
-  return {
-    zero: m?.zero_deg != null ? Number(m.zero_deg) : resting,
-    sign: m?.sign != null ? Number(m.sign) : 1,
-  };
+const GEOMETRY_SCALAR_KEYS = [
+  "units", "shoulder_height", "upper_arm", "forearm", "wrist_rot_offset", "hand", "elbow",
+];
+const GEOMETRY_JOINT_KEYS = ["base", "shoulder", "elbow", "wrist", "wrist_rot"];
+
+function requireGeometry(data) {
+  const g = data.geometry;
+  if (!g) throw new Error("robot.yaml must define geometry: (single source for FK/3D sim).");
+  for (const k of GEOMETRY_SCALAR_KEYS) {
+    if (g[k] == null) throw new Error("robot.yaml geometry." + k + " is required.");
+  }
+  const gj = g.joints;
+  if (!gj) throw new Error("robot.yaml geometry.joints is required.");
+  for (const jn of GEOMETRY_JOINT_KEYS) {
+    if (!gj[jn] || gj[jn].zero_deg == null) {
+      throw new Error("robot.yaml geometry.joints." + jn + " with zero_deg is required.");
+    }
+  }
+  return g;
+}
+
+function jointMap(gj, name) {
+  const m = gj[name];
+  return { zero: Number(m.zero_deg), sign: m.sign != null ? Number(m.sign) : 1 };
 }
 
 // Mirror roboarm/config.py ServoConfig.angle_to_pulse_us + clamp_angle
@@ -240,8 +262,8 @@ function angleToPulseUs(angle, j) {
 }
 
 function configFromYaml(data) {
-  const g = data.geometry || {};
-  const gj = g.joints || {};
+  const g = requireGeometry(data);
+  const gj = g.joints;
   const limits = {};
   const homePose = data.poses?.home || {};
   const homeAngles = {};
@@ -277,19 +299,21 @@ function configFromYaml(data) {
     }
   }
   return {
-    unit: g.units || "mm",
+    unit: String(g.units),
     lengths: {
-      shoulderHeight: Number(g.shoulder_height ?? 80),
-      upperArm: Number(g.upper_arm ?? 105),
-      forearm: Number(g.forearm ?? 100),
-      hand: Number(g.hand ?? 60),
+      shoulderHeight: Number(g.shoulder_height),
+      upperArm: Number(g.upper_arm),
+      forearm: Number(g.forearm),
+      wristRotOffset: Number(g.wrist_rot_offset),
+      hand: Number(g.hand),
+      elbowBranch: String(g.elbow),
     },
     maps: {
-      base: jointMap(gj, "base", homeAngles.base ?? 90),
-      shoulder: jointMap(gj, "shoulder", homeAngles.shoulder ?? 0),
-      elbow: jointMap(gj, "elbow", homeAngles.elbow ?? 45),
-      wrist: jointMap(gj, "wrist", homeAngles.wrist ?? 90),
-      wrist_rot: jointMap(gj, "wrist_rot", homeAngles.wrist_rot ?? 90),
+      base: jointMap(gj, "base"),
+      shoulder: jointMap(gj, "shoulder"),
+      elbow: jointMap(gj, "elbow"),
+      wrist: jointMap(gj, "wrist"),
+      wrist_rot: jointMap(gj, "wrist_rot"),
     },
     limits,
     poses,
@@ -335,6 +359,7 @@ function snapshotConfig(cfg) {
 let CONFIG;
 let JOINTS;
 let servo;
+let activePose = null;
 
 const toKin = (s, m) => (s - m.zero) / (m.sign === 0 ? 1 : m.sign);
 const rad = (d) => (d * Math.PI) / 180;
@@ -350,28 +375,42 @@ function makeLabel(text, cls = "dim-label") {
 }
 
 // Forward kinematics identical to roboarm/kinematics.py (for the readout).
-function fk() {
+function fkFromServo(angles) {
   const L = CONFIG.lengths, M = CONFIG.maps;
-  const az = rad(toKin(servo.base, M.base));
-  const q1 = rad(toKin(servo.shoulder, M.shoulder));
-  const q2 = rad(toKin(servo.elbow, M.elbow));
-  const q3 = rad(toKin(servo.wrist, M.wrist));
+  const az = rad(toKin(angles.base ?? M.base.zero, M.base));
+  const q1 = rad(toKin(angles.shoulder ?? M.shoulder.zero, M.shoulder));
+  const q2 = rad(toKin(angles.elbow ?? M.elbow.zero, M.elbow));
+  const q3 = rad(toKin(angles.wrist ?? M.wrist.zero, M.wrist));
   const wristR = L.upperArm * Math.cos(q1) + L.forearm * Math.cos(q1 + q2);
   const wristZ = L.shoulderHeight + L.upperArm * Math.sin(q1) + L.forearm * Math.sin(q1 + q2);
-  const pitch = q1 + q2 + q3;
-  const tipR = wristR + L.hand * Math.cos(pitch);
-  const tipZ = wristZ + L.hand * Math.sin(pitch);
+  const thetaArm = q1 + q2;
+  const pitch = thetaArm + q3;
+  const off = L.wristRotOffset || 0;
+  const perp = thetaArm + Math.PI / 2 + q3;
+  const rotR = wristR + off * Math.cos(perp);
+  const rotZ = wristZ + off * Math.sin(perp);
+  const tipR = rotR + L.hand * Math.cos(pitch);
+  const tipZ = rotZ + L.hand * Math.sin(pitch);
   return {
     x: tipR * Math.cos(az), y: tipR * Math.sin(az), z: tipZ,
     pitchDeg: deg(pitch), q1, q2, q3, az,
   };
 }
 
+function fk() {
+  return fkFromServo(servo);
+}
+
+// Kinematics Z-up (x,y,z) -> Three.js Y-up (x, z, y).
+function kinToThree(x, y, z) {
+  return new THREE.Vector3(x, z, y);
+}
+
 // ---------------------------------------------------------------------------
 // Bootstrap — load yaml, then build scene
 // ---------------------------------------------------------------------------
 let scene, camera, controls, renderer, labelRenderer, grid;
-let baseGroup, shoulderGroup, elbowGroup, wristGroup, gripperGroup;
+let baseGroup, shoulderGroup, elbowGroup, wristGroup, wristRotGroup, gripperGroup;
 let fingerL, fingerR, tipMarker, tipCoordLabel, dimX, dimY, dimZ;
 let valEls = {};
 let homeCam;
@@ -383,6 +422,10 @@ const KIN_JOINTS = new Set(["base", "shoulder", "elbow", "wrist", "wrist_rot"]);
 const CAL_JOINTS = ["shoulder", "elbow", "wrist"];
 let calLabOpen = false;
 let calJoint = "elbow";
+let reachCloud = null;
+let reachFloor = null;
+let reachBounds = null;
+let showReach = true;
 
 function sliderBounds(j) {
   return freeSwing ? [SIM_MIN, SIM_MAX] : CONFIG.limits[j];
@@ -442,10 +485,12 @@ async function bootstrap() {
   UNIT = CONFIG.unit;
   JOINTS = Object.keys(CONFIG.limits);
   const startPose = CONFIG.poses.park || CONFIG.poses.home || CONFIG.homeAngles;
+  activePose = CONFIG.poses.park ? "park" : (CONFIG.poses.home ? "home" : null);
   servo = { ...CONFIG.homeAngles, ...startPose };
   JOINTS.forEach((j) => setServoAngle(j, servo[j] ?? CONFIG.homeAngles[j] ?? 90));
 
   buildScene();
+  buildReachability();
   buildUI();
   buildCalLab();
   update();
@@ -574,6 +619,94 @@ function updateAngleViz(q1, q2, q3, M) {
   );
 }
 
+function sampleStep(lo, hi, i, n) {
+  return n <= 1 ? (lo + hi) / 2 : lo + ((hi - lo) * i) / (n - 1);
+}
+
+function disposeReachability() {
+  for (const obj of [reachCloud, reachFloor, reachBounds]) {
+    if (!obj) continue;
+    scene.remove(obj);
+    obj.geometry?.dispose();
+    obj.material?.dispose();
+  }
+  reachCloud = reachFloor = reachBounds = null;
+}
+
+function buildReachability() {
+  disposeReachability();
+  const lim = CONFIG.limits;
+  const steps = { base: 16, shoulder: 12, elbow: 12, wrist: 8 };
+  const vol = [];
+  const floor = [];
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+
+  for (let ib = 0; ib < steps.base; ib++) {
+    const base = sampleStep(lim.base[0], lim.base[1], ib, steps.base);
+    for (let is = 0; is < steps.shoulder; is++) {
+      const shoulder = sampleStep(lim.shoulder[0], lim.shoulder[1], is, steps.shoulder);
+      for (let ie = 0; ie < steps.elbow; ie++) {
+        const elbow = sampleStep(lim.elbow[0], lim.elbow[1], ie, steps.elbow);
+        for (let iw = 0; iw < steps.wrist; iw++) {
+          const wrist = sampleStep(lim.wrist[0], lim.wrist[1], iw, steps.wrist);
+          const tip = fkFromServo({ base, shoulder, elbow, wrist });
+          const p = kinToThree(tip.x, tip.y, tip.z);
+          vol.push(p.x, p.y, p.z);
+          floor.push(tip.x, 0.8, tip.y);
+          minX = Math.min(minX, tip.x); maxX = Math.max(maxX, tip.x);
+          minZ = Math.min(minZ, tip.y); maxZ = Math.max(maxZ, tip.y);
+        }
+      }
+    }
+  }
+
+  const volGeom = new THREE.BufferGeometry();
+  volGeom.setAttribute("position", new THREE.Float32BufferAttribute(vol, 3));
+  reachCloud = new THREE.Points(volGeom, new THREE.PointsMaterial({
+    color: 0x4ea1ff,
+    size: 3.2,
+    transparent: true,
+    opacity: 0.32,
+    depthWrite: false,
+    sizeAttenuation: true,
+  }));
+  reachCloud.renderOrder = 0;
+  reachCloud.visible = showReach;
+  scene.add(reachCloud);
+
+  const floorGeom = new THREE.BufferGeometry();
+  floorGeom.setAttribute("position", new THREE.Float32BufferAttribute(floor, 3));
+  reachFloor = new THREE.Points(floorGeom, new THREE.PointsMaterial({
+    color: 0x3ecf8e,
+    size: 2.4,
+    transparent: true,
+    opacity: 0.22,
+    depthWrite: false,
+    sizeAttenuation: true,
+  }));
+  reachFloor.renderOrder = 0;
+  reachFloor.visible = showReach;
+  scene.add(reachFloor);
+
+  // Bounding footprint on the table (kinematic XY → Three XZ).
+  if (Number.isFinite(minX)) {
+    const pad = 8;
+    const w = maxX - minX + pad * 2;
+    const d = maxZ - minZ + pad * 2;
+    const cx = (minX + maxX) / 2;
+    const cz = (minZ + maxZ) / 2;
+    reachBounds = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.PlaneGeometry(w, d)),
+      new THREE.LineBasicMaterial({ color: 0x3ecf8e, transparent: true, opacity: 0.45 })
+    );
+    reachBounds.rotation.x = -Math.PI / 2;
+    reachBounds.position.set(cx, 0.4, cz);
+    reachBounds.visible = showReach;
+    reachBounds.renderOrder = 0;
+    scene.add(reachBounds);
+  }
+}
+
 function update() {
   const M = CONFIG.maps;
   const az = rad(toKin(servo.base, M.base));
@@ -586,7 +719,7 @@ function update() {
   shoulderGroup.rotation.z = q1;
   elbowGroup.rotation.z = q2;
   wristGroup.rotation.z = q3;
-  gripperGroup.rotation.x = roll;
+  wristRotGroup.rotation.x = roll;
 
   const gl = CONFIG.limits.gripper;
   const open = 1 - (servo.gripper - gl[0]) / (gl[1] - gl[0]);
@@ -831,16 +964,31 @@ elbowGroup.add(forearmLabel);
 wristGroup = new THREE.Group();
 wristGroup.position.x = L.forearm;
 elbowGroup.add(wristGroup);
+// Wrist pitch motor at forearm end (hand segment starts after wrist_rot stack).
+const wristPitchMotor = makeLink(Math.min(18, L.forearm * 0.12), matLink);
+wristGroup.add(wristPitchMotor);
+const wristPitchLabel = makeLabel("wrist pitch");
+wristPitchLabel.position.set(0, VIS.motor * 0.8, 0);
+wristGroup.add(wristPitchLabel);
+
+wristRotGroup = new THREE.Group();
+wristRotGroup.position.y = L.wristRotOffset;
+wristGroup.add(wristRotGroup);
+const wristRotMotor = makeLink(Math.min(14, L.wristRotOffset * 0.25), matDark);
+wristRotGroup.add(wristRotMotor);
+const wristRotLabel = makeLabel("wrist_rot +" + L.wristRotOffset + " " + UNIT);
+wristRotLabel.position.set(0, VIS.motor * 0.5, 0);
+wristRotGroup.add(wristRotLabel);
+
 const handLink = makeLink(L.hand, matLink);
-wristGroup.add(handLink);
+wristRotGroup.add(handLink);
 const handLabel = makeLabel("hand " + L.hand + " " + UNIT);
 handLabel.position.set(L.hand / 2, VIS.motor * 0.45, 0);
-wristGroup.add(handLabel);
+wristRotGroup.add(handLabel);
 
-// wrist_rot + gripper at end of hand
 gripperGroup = new THREE.Group();
 gripperGroup.position.x = L.hand;
-wristGroup.add(gripperGroup);
+wristRotGroup.add(gripperGroup);
 const palm = addShadow(new THREE.Mesh(new THREE.BoxGeometry(20, 36, 36), matGrip));
 gripperGroup.add(palm);
 fingerL = addShadow(new THREE.Mesh(new THREE.BoxGeometry(40, 8, 10), matGrip));
@@ -878,6 +1026,13 @@ initAngleViz();
     calLabOpen = !calLabOpen;
     document.getElementById("calPanel").classList.toggle("open", calLabOpen);
     document.getElementById("toggleCalLab").classList.toggle("active", calLabOpen);
+  });
+  document.getElementById("toggleReach").addEventListener("click", () => {
+    showReach = !showReach;
+    if (reachCloud) reachCloud.visible = showReach;
+    if (reachFloor) reachFloor.visible = showReach;
+    if (reachBounds) reachBounds.visible = showReach;
+    document.getElementById("toggleReach").classList.toggle("reach-on", showReach);
   });
   window.addEventListener("resize", onResize);
 }
@@ -1081,6 +1236,13 @@ JOINTS.forEach((j) => {
   refreshJointUI(j);
 });
 
+function setActivePose(name) {
+  activePose = name;
+  document.querySelectorAll("#poses button").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.pose === name);
+  });
+}
+
 function applyPose(name) {
   const p = CONFIG.poses[name];
   if (!p) return;
@@ -1092,13 +1254,17 @@ function applyPose(name) {
     if (valEls[j]) valEls[j].textContent = clamped;
     refreshJointUI(j);
   });
+  setActivePose(name);
   update();
 }
 
 const posesEl = document.getElementById("poses");
 Object.keys(CONFIG.poses).forEach((name) => {
   const b = document.createElement("button");
+  b.type = "button";
+  b.dataset.pose = name;
   b.textContent = name;
+  b.classList.toggle("active", name === activePose);
   b.addEventListener("click", () => applyPose(name));
   posesEl.appendChild(b);
 });
