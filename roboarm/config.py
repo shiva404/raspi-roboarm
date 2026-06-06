@@ -338,8 +338,12 @@ def save_calibration_override(
         try:
             j = base_config.joint(joint_name)
             entry["channel"] = j.channel
-            entry["pulse_min_angle"] = j.soft_min_angle
-            entry["pulse_max_angle"] = j.soft_max_angle
+            # Preserve existing pulse anchors — only set on first write. They
+            # record where min/max µs were found on the horn, not joints.min.
+            if "pulse_min_angle" not in entry:
+                entry["pulse_min_angle"] = j.soft_min_angle
+            if "pulse_max_angle" not in entry:
+                entry["pulse_max_angle"] = j.soft_max_angle
         except KeyError:
             pass
     joints[joint_name] = entry

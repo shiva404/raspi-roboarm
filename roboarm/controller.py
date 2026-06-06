@@ -359,7 +359,14 @@ class RobotController:
     # --- helpers ------------------------------------------------------------
 
     def home(self, speed_dps: float | None = None) -> None:
-        """Smoothly send every enabled joint to its home angle."""
+        """Smoothly send every enabled joint home.
+
+        Uses the ``home`` pose from robot.yaml when defined; otherwise each
+        joint's ``resting`` angle.
+        """
+        if "home" in self.config.poses:
+            self.move_to_pose("home", speed_dps=speed_dps)
+            return
         self.move_many(
             {s.name: s.cfg.home_angle for s in self.servos.values()},
             speed_dps=speed_dps,

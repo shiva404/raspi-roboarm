@@ -42,7 +42,7 @@ joints:
     enabled: true
     min: 95          # travel limit — pulse map uses pulse_min_angle in robot.calibration.yaml
     max: 180
-    resting: 95
+    resting: 110     # shoulder@0 needs ~110° to clear upper arm (ready uses 100° @ shoulder 60°)
 
   - name: wrist
     channel: 6
@@ -69,10 +69,10 @@ joints:
 # Angles are servo° within joints.min/max, tuned for geometry.joints calibration.
 # gripper: 60 = open, 110 = closed (swap if yours is reversed).
 poses:
-  home:        { base: 90,  shoulder: 0,   elbow: 95,  wrist: 90,  wrist_rot: 90, gripper: 90 }   # resting — folded, clears upper arm
+  home:        { base: 90,  shoulder: 0,   elbow: 110, wrist: 90,  wrist_rot: 90, gripper: 90 }   # shoulder 0 — elbow needs ~110° to clear
   ready:       { base: 90,  shoulder: 60,  elbow: 100, wrist: 90,  wrist_rot: 90, gripper: 90 }   # calibrated working pose
   reach_out:   { base: 90,  shoulder: 70,  elbow: 125, wrist: 85,  wrist_rot: 90, gripper: 60 }   # extended, shy of limits
-  park:        { base: 90,  shoulder: 0,   elbow: 95,  wrist: 90,  wrist_rot: 90, gripper: 110 }  # resting + gripper closed
+  park:        { base: 90,  shoulder: 0,   elbow: 110, wrist: 90,  wrist_rot: 90, gripper: 110 }  # resting + gripper closed
   look_left:   { base: 150, shoulder: 60,  elbow: 100, wrist: 90,  wrist_rot: 90, gripper: 90 }   # ready + base left
   look_right:  { base: 30,  shoulder: 60,  elbow: 100, wrist: 90,  wrist_rot: 90, gripper: 90 }   # ready + base right
   gripper_open:  { gripper: 60 }

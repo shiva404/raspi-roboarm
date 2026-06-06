@@ -144,16 +144,28 @@ def info(ctx: Ctx):
     c = ctx.controller()
     table = Table(title=f"Joints (backend: {'MOCK' if c.backend.is_mock else 'PCA9685'}, "
                         f"{c.backend.freq_hz:.0f}Hz)")
-    for col in ("Joint", "Ch", "Angle", "Pulse us", "Limits", "Home", "Inv", "Attached"):
+    for col in (
+        "Joint",
+        "Ch",
+        "Angle",
+        "Pulse us",
+        "Limits",
+        "Pulse map",
+        "Home",
+        "Inv",
+        "Attached",
+    ):
         table.add_column(col)
     for s in c.servos.values():
         cfg = s.cfg
+        p_lo, p_hi = cfg._pulse_span_angles()
         table.add_row(
             s.name,
             str(s.channel),
             f"{s.angle:.1f}",
             f"{cfg.angle_to_pulse_us(s.angle):.0f}",
             f"{cfg.soft_min_angle:.0f}..{cfg.soft_max_angle:.0f}",
+            f"{p_lo:.0f}..{p_hi:.0f}",
             f"{cfg.home_angle:.0f}",
             "Y" if cfg.invert else "-",
             "Y" if s.attached else "-",
@@ -236,14 +248,17 @@ def sweep(ctx: Ctx, joint: str, low, high, cycles: int, speed: float):
 )
 @pass_ctx
 def home(ctx: Ctx, speed, stagger):
-    """Smoothly move all joints to their home angle."""
+    """Smoothly move all joints to the home pose (or resting angles)."""
     c = ctx.controller()
     try:
-        c.move_many(
-            {s.name: s.cfg.home_angle for s in c.servos.values()},
-            speed_dps=speed,
-            stagger=stagger,
-        )
+        if "home" in c.config.poses:
+            c.move_to_pose("home", speed_dps=speed, stagger=stagger)
+        else:
+            c.move_many(
+                {s.name: s.cfg.home_angle for s in c.servos.values()},
+                speed_dps=speed,
+                stagger=stagger,
+            )
         console.print("[green]home[/]")
     finally:
         ctx.close()
