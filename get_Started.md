@@ -133,7 +133,7 @@ Only after base works reliably:
 |-------|-------------|---------|-----------------------------------------|
 | 1     | base        | CH00    | ✅ do this first                        |
 | 2     | shoulder    | CH02    | `roboarm move shoulder 45 --speed 20`   |
-| 3     | elbow       | CH04    | resting is 30° — tune geometry zero_deg for bend |
+| 3     | elbow       | CH04    | resting is 55° — tune geometry zero_deg for bend |
 | 4     | wrist       | CH06    |                                         |
 | 5     | wrist_rot   | CH08    |                                         |
 | 6     | gripper     | CH10    | small range: 60–110°                    |

@@ -40,9 +40,9 @@ joints:
   - name: elbow
     channel: 4
     enabled: true
-    min: 30
+    min: 55
     max: 150
-    resting: 30
+    resting: 55
 
   - name: wrist
     channel: 6
@@ -69,10 +69,10 @@ joints:
 # Angles are servo° within joints.min/max, tuned for geometry.joints calibration.
 # gripper: 60 = open, 110 = closed (swap if yours is reversed).
 poses:
-  home:        { base: 90,  shoulder: 0,   elbow: 30,  wrist: 90,  wrist_rot: 90, gripper: 90 }   # resting — folded stable
+  home:        { base: 90,  shoulder: 0,   elbow: 55,  wrist: 90,  wrist_rot: 90, gripper: 90 }   # resting — folded stable
   ready:       { base: 90,  shoulder: 60,  elbow: 100, wrist: 90,  wrist_rot: 90, gripper: 90 }   # calibrated working pose
   reach_out:   { base: 90,  shoulder: 70,  elbow: 125, wrist: 85,  wrist_rot: 90, gripper: 60 }   # extended, shy of limits
-  park:        { base: 90,  shoulder: 0,   elbow: 30,  wrist: 90,  wrist_rot: 90, gripper: 110 }  # resting + gripper closed
+  park:        { base: 90,  shoulder: 0,   elbow: 55,  wrist: 90,  wrist_rot: 90, gripper: 110 }  # resting + gripper closed
   look_left:   { base: 150, shoulder: 60,  elbow: 100, wrist: 90,  wrist_rot: 90, gripper: 90 }   # ready + base left
   look_right:  { base: 30,  shoulder: 60,  elbow: 100, wrist: 90,  wrist_rot: 90, gripper: 90 }   # ready + base right
   gripper_open:  { gripper: 60 }
