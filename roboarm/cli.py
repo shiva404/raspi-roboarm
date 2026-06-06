@@ -395,17 +395,55 @@ def fk(ctx: Ctx):
 
     Use this to tune geometry: move the arm to a known spot, run `fk`, and
     adjust geometry.joints zero_deg/sign in robot.yaml until it matches reality.
+
+    Y (left/right) comes only from the base joint in this model — shoulder,
+    elbow, and wrist move in the arm's vertical plane. Use `jog base` to test Y.
     """
     c = ctx.controller()
     try:
         tip = c.current_tip()
         u = c.config.geometry.units
         console.print(
-            f"[green]tip[/] x={tip['x']:.1f}{u}  y={tip['y']:.1f}{u}  "
+            f"[green]tip[/] x={tip['x']:.1f}{u}  y={tip['y']:.2f}{u}  "
             f"z={tip['z']:.1f}{u}  pitch={tip['pitch_deg']:.1f}deg"
         )
         wx, wy, wz = tip["wrist"]
-        console.print(f"[dim]wrist x={wx:.1f}{u}  y={wy:.1f}{u}  z={wz:.1f}{u}[/]")
+        console.print(f"[dim]wrist x={wx:.1f}{u}  y={wy:.2f}{u}  z={wz:.1f}{u}[/]")
+
+        ik_joints = ("base", "shoulder", "elbow", "wrist", "wrist_rot")
+        table = Table(title="Joint angles used for FK", show_header=True)
+        table.add_column("Joint")
+        table.add_column("Servo", justify="right")
+        table.add_column("Kinematic", justify="right")
+        table.add_column("In FK?", justify="center")
+        for name in ik_joints:
+            servo = c.servos[name].angle if name in c.servos else None
+            kin = tip.get("kin_angles", {}).get(name)
+            if name == "wrist_rot":
+                kin_str = "—"
+                used = "no"
+            elif kin is not None:
+                kin_str = f"{kin:.1f}°"
+                used = "yes"
+            else:
+                kin_str = "—"
+                used = "no"
+            servo_str = f"{servo:.1f}°" if servo is not None else "n/a"
+            table.add_row(name, servo_str, kin_str, used)
+        console.print(table)
+
+        az = tip.get("azimuth_deg", 0.0)
+        reach = tip.get("reach_mm", 0.0)
+        console.print(
+            f"[dim]azimuth={az:.1f}°  reach={reach:.1f}{u}  "
+            f"(y = reach × sin(azimuth); only base changes azimuth)[/]"
+        )
+        if abs(az) < 0.5 and abs(tip["y"]) < 0.5:
+            console.print(
+                "[yellow]y≈0 because base kinematic angle is ~0° "
+                "(servo at zero_deg). Jog base to see Y change:[/] "
+                "`roboarm jog base +30`"
+            )
     except (ValueError, KeyError) as exc:
         console.print(f"[red]{exc}[/]")
     finally:

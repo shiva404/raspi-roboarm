@@ -228,6 +228,14 @@ def forward_kinematics(geom: ArmGeometry, servo_angles: dict[str, float]) -> dic
     tip_r = wrist_r + geom.hand * math.cos(pitch)
     tip_z = wrist_z + geom.hand * math.sin(pitch)
 
+    az_deg = math.degrees(az)
+    kin = {
+        "base": az_deg,
+        "shoulder": math.degrees(q1),
+        "elbow": math.degrees(q2),
+        "wrist": math.degrees(q3),
+    }
+
     return {
         "x": tip_r * math.cos(az),
         "y": tip_r * math.sin(az),
@@ -238,4 +246,7 @@ def forward_kinematics(geom: ArmGeometry, servo_angles: dict[str, float]) -> dic
             wrist_z,
         ),
         "pitch_deg": math.degrees(pitch),
+        "azimuth_deg": az_deg,
+        "reach_mm": tip_r,
+        "kin_angles": kin,
     }

@@ -346,6 +346,11 @@ Coordinates use whatever unit you set in `robot.yaml` → `geometry.units`
 (millimetres recommended). So `reach 150 0 120` means "150 mm forward, centred,
 120 mm up".
 
+**Important:** in this simplified model, **only the base joint changes Y**
+(left/right). Shoulder, elbow, and wrist move in the arm's vertical plane — if
+you jog those without moving base, `fk` will correctly show `y≈0`. `wrist_rot` is
+not in FK yet. Test Y with `roboarm jog base +30` then `roboarm fk`.
+
 ### Step 1 — Measure your arm (edit `robot.yaml` → `geometry:`)
 
 With a ruler, measure and fill in:

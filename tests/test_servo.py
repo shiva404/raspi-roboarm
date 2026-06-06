@@ -298,6 +298,28 @@ def test_save_calibration_override_creates_file(tmp_path):
     assert text2.count("name: base") == 1
 
 
+def test_fk_y_only_changes_with_base_azimuth():
+    from roboarm.kinematics import ArmGeometry, JointMap, forward_kinematics
+
+    geom = ArmGeometry(
+        shoulder_height=100,
+        upper_arm=105,
+        forearm=100,
+        hand=60,
+        base_map=JointMap(zero_deg=90, sign=1),
+        elbow_map=JointMap(zero_deg=45, sign=1),
+        wrist_map=JointMap(zero_deg=90, sign=-1),
+    )
+    angles = {"base": 90, "shoulder": 60, "elbow": 100, "wrist": 90}
+    center = forward_kinematics(geom, angles)
+    left = forward_kinematics(geom, {**angles, "base": 150})
+    assert abs(center["y"]) < 1e-6
+    assert abs(left["y"]) > 1.0
+    # Shoulder/elbow/wrist alone should not change y when azimuth is fixed at 0
+    moved = forward_kinematics(geom, {**angles, "wrist": 105})
+    assert abs(moved["y"]) < 1e-6
+
+
 def test_ik_fk_round_trip():
     """Solve IK for a point, then FK on the result should return that point."""
     from roboarm.kinematics import ArmGeometry, forward_kinematics, solve_ik
