@@ -71,7 +71,7 @@ poses:
   home:        { base: 90,  shoulder: 0,   elbow: 50,  wrist: 90,  wrist_rot: 90, gripper: 90 }
   ready:       { base: 90,  shoulder: 60,  elbow: 100, wrist: 90,  wrist_rot: 90, gripper: 90 }
   reach_out:   { base: 90,  shoulder: 80,  elbow: 140, wrist: 80,  wrist_rot: 90, gripper: 60 }
-  park:        { base: 90,  shoulder: 10,  elbow: 50,  wrist: 40,  wrist_rot: 90, gripper: 110 }
+  park:        { base: 90,  shoulder: 0,  elbow: 50,  wrist: 40,  wrist_rot: 90, gripper: 110 }
   look_left:   { base: 150, shoulder: 60,  elbow: 100, wrist: 90,  wrist_rot: 90, gripper: 90 }
   look_right:  { base: 30,  shoulder: 60,  elbow: 100, wrist: 90,  wrist_rot: 90, gripper: 90 }
   gripper_open:  { gripper: 60 }
@@ -100,9 +100,10 @@ geometry:
   upper_arm: 105          # shoulder axis -> elbow axis           (MEASURE)
   forearm: 100            # elbow axis -> wrist axis              (MEASURE)
   hand: 150                # wrist axis -> gripper tip             (MEASURE)
-  elbow: up               # default elbow bend: up or down
+  elbow: down             # elbow bends downward on this arm (matches negative kin)
   joints:
     base:     { zero_deg: 90, sign: 1 }    # servo 90 = pointing forward
-    shoulder: { zero_deg: -60, sign: 1 }   # tuned: ready shoulder 60° servo = 120° kin
-    elbow:    { zero_deg: 20, sign: -1 }    # tuned: ready elbow 100° servo = -80° kin
+    shoulder: { zero_deg: 180, sign: -1 }  # kin = 180 − servo°  (0→180, 60→120, 180→0)
+    elbow:    { zero_deg: 180, sign: 1 }   # kin = servo − 180°  (inverted horn, bends down)
     wrist:    { zero_deg: 0, sign: -1 }    # tuned: ready wrist 90° servo = -90° kin
+    wrist_rot: { zero_deg: 90, sign: 1 }  # servo 90 = no roll

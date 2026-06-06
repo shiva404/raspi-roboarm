@@ -39,6 +39,8 @@
   .joint.out-of-range .val b { color: var(--warn); }
   .joint .limits { font-size: 9px; color: var(--text-dim); margin-top: 3px; }
   .joint .limits.in-range { color: #5de88a; }
+  .joint .kin { font-size: 10px; color: var(--warn); font-weight: 600; }
+  .toolbar button.active { border-color: var(--warn); color: var(--warn); }
   input[type=range] { -webkit-appearance: none; width: 100%; height: 3px; border-radius: 3px;
     background: var(--panel-line); outline: none; margin: 0; }
   input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px;
@@ -92,12 +94,13 @@
   <button id="toggleGrid" title="Toggle grid">&#9783;</button>
   <button id="reloadCfg" title="Reload robot.yaml">&#x21bb;</button>
   <button id="toggleAngles" title="Toggle angle measurement lines">&#x2220;</button>
+  <button id="toggleFreeSwing" title="Free swing −180…180 (off = robot.yaml min/max)">&#x21c4;</button>
 </div>
 
 <div class="panel">
   <h2>Poses</h2>
   <div class="poses" id="poses"></div>
-  <h2>Joint angles (servo°, −180…180)</h2>
+  <h2 id="sliderTitle">Joint angles (servo°)</h2>
   <div id="sliders"></div>
 </div>
 
@@ -110,7 +113,7 @@
     <div class="cell"><div class="v"><span id="rp">0</span><span class="u">°</span></div><div class="l">pitch</div></div>
   </div>
   <div class="dims" id="reachLine">reach from base: <span id="reach">0</span> mm</div>
-  <div class="note">Sliders swing <b>−180…180°</b> for tuning. Servo value turns orange outside <code>robot.yaml</code> limit. Orange arcs = kinematic° from dashed gray reference.</div>
+  <div class="note">Same pipeline as Pi: <b>servo°</b> → clamp (<code>min/max</code>) → pulse (<code>robot.calibration.yaml</code>) → link rotation (<code>geometry.joints</code>). Sliders = commanded servo°. Orange arcs = kinematic bend driving the mesh.</div>
 </div>
 
 <div class="hint">drag to orbit · scroll to zoom · right-drag to pan</div>
@@ -167,14 +170,41 @@ function jointMap(gj, name, resting = 90) {
   };
 }
 
+// Mirror roboarm/config.py ServoConfig.angle_to_pulse_us + clamp_angle
+function clampAngle(angle, j) {
+  return Math.max(j.min, Math.min(j.max, angle));
+}
+
+function angleToPulseUs(angle, j) {
+  let a = clampAngle(angle, j);
+  if (j.invert) a = j.min + j.max - a;
+  const span = j.max - j.min;
+  if (span === 0) return j.minPulse;
+  const frac = (a - j.min) / span;
+  return j.minPulse + frac * (j.maxPulse - j.minPulse);
+}
+
 function configFromYaml(data) {
   const g = data.geometry || {};
   const gj = g.joints || {};
   const limits = {};
   const resting = {};
+  const servos = {};
   for (const j of data.joints || []) {
-    limits[j.name] = [Number(j.min), Number(j.max)];
+    const min = Number(j.min);
+    const max = Number(j.max);
+    limits[j.name] = [min, max];
     resting[j.name] = Number(j.resting ?? j.home_angle ?? 90);
+    servos[j.name] = {
+      name: j.name,
+      min,
+      max,
+      resting: resting[j.name],
+      minPulse: Number(j.min_pulse_us ?? 500),
+      maxPulse: Number(j.max_pulse_us ?? 2500),
+      invert: Boolean(j.invert),
+      hasCal: j.min_pulse_us != null || j.max_pulse_us != null,
+    };
   }
   const defaults = { ...resting };
   const poses = {};
@@ -202,7 +232,16 @@ function configFromYaml(data) {
     limits,
     poses,
     resting,
+    servos,
   };
+}
+
+function setServoAngle(name, angle) {
+  const j = CONFIG.servos[name];
+  if (!j) return angle;
+  const clamped = clampAngle(angle, j);
+  servo[name] = clamped;
+  return clamped;
 }
 
 async function loadRobotConfig() {
@@ -261,14 +300,57 @@ let fingerL, fingerR, tipMarker, tipCoordLabel, dimX, dimY, dimZ;
 let valEls = {};
 let homeCam;
 let angleGroup, angleLines, angleLabels, showAngles = true;
+let freeSwing = false;
 const SIM_MIN = -180;
 const SIM_MAX = 180;
+const KIN_JOINTS = new Set(["base", "shoulder", "elbow", "wrist", "wrist_rot"]);
+
+function sliderBounds(j) {
+  return freeSwing ? [SIM_MIN, SIM_MAX] : CONFIG.limits[j];
+}
+
+function refreshPanelTitle() {
+  const el = document.getElementById("sliderTitle");
+  if (!el) return;
+  el.textContent = freeSwing
+    ? "Joint angles (servo°, free −180…180)"
+    : "Joint angles (servo°, robot.yaml min/max)";
+}
+
+function refreshKinReadouts(M) {
+  for (const j of KIN_JOINTS) {
+    const kinEl = document.getElementById("k_" + j);
+    const pulseEl = document.getElementById("p_" + j);
+    const sj = CONFIG.servos[j];
+    if (!sj || servo[j] == null) continue;
+    if (kinEl && M[j]) kinEl.textContent = "→ kin " + toKin(servo[j], M[j]).toFixed(0) + "°";
+    if (pulseEl) {
+      const pulse = Math.round(angleToPulseUs(servo[j], sj));
+      pulseEl.textContent = sj.hasCal
+        ? "pulse " + pulse + " µs (calibrated)"
+        : "pulse " + pulse + " µs (default 500–2500)";
+    }
+  }
+}
+
+function refreshGripperPulse() {
+  const j = CONFIG.servos.gripper;
+  const el = document.getElementById("p_gripper");
+  if (!j || !el || servo.gripper == null) return;
+  const pulse = Math.round(angleToPulseUs(servo.gripper, j));
+  el.textContent = j.hasCal
+    ? "pulse " + pulse + " µs (calibrated)"
+    : "pulse " + pulse + " µs";
+}
 
 async function bootstrap() {
   const src = document.getElementById("source");
   try {
     CONFIG = await loadRobotConfig();
-    src.textContent = "config: robot.yaml" + (await fetch(CAL_PATH).then((r) => r.ok).catch(() => false) ? " + calibration" : "");
+    const hasCal = await fetch(CAL_PATH).then((r) => r.ok).catch(() => false);
+    src.textContent = hasCal
+      ? "config: robot.yaml + calibration (pulse µs → same as Pi)"
+      : "config: robot.yaml only — add robot.calibration.yaml for pulse parity";
     src.className = "source ok";
   } catch (err) {
     src.textContent = String(err.message || err);
@@ -282,6 +364,7 @@ async function bootstrap() {
   JOINTS = Object.keys(CONFIG.limits);
   const startPose = CONFIG.poses.park || CONFIG.poses.home || CONFIG.resting;
   servo = { ...CONFIG.resting, ...startPose };
+  JOINTS.forEach((j) => setServoAngle(j, servo[j] ?? CONFIG.resting[j] ?? 90));
 
   buildScene();
   buildUI();
@@ -447,6 +530,8 @@ function update() {
   tipCoordLabel.element.textContent =
     "(" + f.x.toFixed(0) + ", " + f.y.toFixed(0) + ", " + f.z.toFixed(0) + ") " + UNIT;
 
+  refreshKinReadouts(M);
+  refreshGripperPulse();
   updateAngleViz(q1, q2, q3, M);
 }
 
@@ -608,13 +693,18 @@ const matAccent = metal(0x4ea1ff, 0.3, 0.5);
 
 function addShadow(mesh) { mesh.castShadow = true; mesh.receiveShadow = true; return mesh; }
 
-// Build a boxy link of given length along +X, thickness t, with a servo block at its base.
-function makeLink(length, t, mat) {
+// Visual scale (1 unit = 1 mm) — match physical hardware
+const VIS = { baseD: 50, columnD: 25, motor: 20, pedestalH: 20 };
+
+// Boxy link along +X with a 20 mm servo block at the joint pivot.
+function makeLink(length, mat) {
   const g = new THREE.Group();
-  const beam = addShadow(new THREE.Mesh(new THREE.BoxGeometry(length, t, t * 0.7), mat));
+  const m = VIS.motor;
+  const beamH = m * 0.75;
+  const beam = addShadow(new THREE.Mesh(new THREE.BoxGeometry(length, beamH, beamH * 0.7), mat));
   beam.position.x = length / 2;
   g.add(beam);
-  const servoBlock = addShadow(new THREE.Mesh(new THREE.BoxGeometry(t * 1.4, t * 1.5, t * 1.6), matDark));
+  const servoBlock = addShadow(new THREE.Mesh(new THREE.BoxGeometry(m, m, m * 0.85), matDark));
   g.add(servoBlock);
   return g;
 }
@@ -622,13 +712,19 @@ function makeLink(length, t, mat) {
 baseGroup = new THREE.Group();
 scene.add(baseGroup);
 
-// Base pedestal
-const pedestal = addShadow(new THREE.Mesh(new THREE.CylinderGeometry(46, 56, 40, 28), matBase));
-pedestal.position.y = 20;
+// Base stand 50 mm Ø + column 25 mm Ø up to the shoulder
+const baseR = VIS.baseD / 2;
+const colR = VIS.columnD / 2;
+const pedestal = addShadow(new THREE.Mesh(
+  new THREE.CylinderGeometry(baseR, baseR, VIS.pedestalH, 32), matBase
+));
+pedestal.position.y = VIS.pedestalH / 2;
 baseGroup.add(pedestal);
-const turretH = L.shoulderHeight - 40;
-const turret = addShadow(new THREE.Mesh(new THREE.CylinderGeometry(34, 40, turretH, 24), matBase));
-turret.position.y = 20 + turretH / 2;
+const turretH = L.shoulderHeight - VIS.pedestalH;
+const turret = addShadow(new THREE.Mesh(
+  new THREE.CylinderGeometry(colR, colR, turretH, 24), matBase
+));
+turret.position.y = VIS.pedestalH + turretH / 2;
 baseGroup.add(turret);
 const baseHLabel = makeLabel("shoulder " + L.shoulderHeight + " " + UNIT);
 baseHLabel.position.set(52, L.shoulderHeight / 2, 0);
@@ -638,26 +734,26 @@ baseGroup.add(baseHLabel);
 shoulderGroup = new THREE.Group();
 shoulderGroup.position.y = L.shoulderHeight;
 baseGroup.add(shoulderGroup);
-shoulderGroup.add(makeLink(L.upperArm, 34, matLink));
+shoulderGroup.add(makeLink(L.upperArm, matLink));
 const upperArmLabel = makeLabel("upper arm " + L.upperArm + " " + UNIT);
-upperArmLabel.position.set(L.upperArm / 2, 22, 0);
+upperArmLabel.position.set(L.upperArm / 2, VIS.motor * 0.6, 0);
 shoulderGroup.add(upperArmLabel);
 
 elbowGroup = new THREE.Group();
 elbowGroup.position.x = L.upperArm;
 shoulderGroup.add(elbowGroup);
-elbowGroup.add(makeLink(L.forearm, 28, matLink));
+elbowGroup.add(makeLink(L.forearm, matLink));
 const forearmLabel = makeLabel("forearm " + L.forearm + " " + UNIT);
-forearmLabel.position.set(L.forearm / 2, 18, 0);
+forearmLabel.position.set(L.forearm / 2, VIS.motor * 0.55, 0);
 elbowGroup.add(forearmLabel);
 
 wristGroup = new THREE.Group();
 wristGroup.position.x = L.forearm;
 elbowGroup.add(wristGroup);
-const handLink = makeLink(L.hand, 22, matLink);
+const handLink = makeLink(L.hand, matLink);
 wristGroup.add(handLink);
 const handLabel = makeLabel("hand " + L.hand + " " + UNIT);
-handLabel.position.set(L.hand / 2, 14, 0);
+handLabel.position.set(L.hand / 2, VIS.motor * 0.45, 0);
 wristGroup.add(handLabel);
 
 // wrist_rot + gripper at end of hand
@@ -690,6 +786,13 @@ initAngleViz();
     showAngles = !showAngles;
     update();
   });
+  document.getElementById("toggleFreeSwing").addEventListener("click", () => {
+    freeSwing = !freeSwing;
+    document.getElementById("toggleFreeSwing").classList.toggle("active", freeSwing);
+    refreshPanelTitle();
+    buildUI();
+    update();
+  });
   window.addEventListener("resize", onResize);
 }
 
@@ -698,11 +801,16 @@ function refreshJointUI(j) {
   const v = servo[j];
   const inRange = v >= limMin && v <= limMax;
   const wrap = document.getElementById("joint_" + j);
-  if (wrap) wrap.classList.toggle("out-of-range", !inRange);
+  if (wrap) wrap.classList.toggle("out-of-range", freeSwing && !inRange);
   const limEl = document.getElementById("lim_" + j);
   if (limEl) {
-    limEl.textContent = "robot limit " + limMin + "–" + limMax + (inRange ? " ✓" : " (unsafe)");
-    limEl.className = "limits" + (inRange ? " in-range" : "");
+    if (freeSwing) {
+      limEl.textContent = "robot limit " + limMin + "–" + limMax + (inRange ? " ✓" : " (outside)");
+      limEl.className = "limits" + (inRange ? " in-range" : "");
+    } else {
+      limEl.textContent = "slider = robot limit " + limMin + "–" + limMax;
+      limEl.className = "limits in-range";
+    }
   }
 }
 
@@ -714,22 +822,28 @@ const slidersEl = document.getElementById("sliders");
 slidersEl.innerHTML = "";
 document.getElementById("poses").innerHTML = "";
 valEls = {};
+refreshPanelTitle();
 JOINTS.forEach((j) => {
   if (servo[j] == null) servo[j] = CONFIG.resting[j] ?? 90;
-  const [limMin, limMax] = CONFIG.limits[j];
+  const [sMin, sMax] = sliderBounds(j);
+  const v = Math.max(sMin, Math.min(sMax, servo[j]));
+  servo[j] = v;
+  const kinPart = KIN_JOINTS.has(j) ? ' <span class="kin" id="k_' + j + '"></span>' : "";
+  const pulsePart = '<div class="limits pulse" id="p_' + j + '"></div>';
   const wrap = document.createElement("div");
   wrap.className = "joint";
   wrap.id = "joint_" + j;
   wrap.innerHTML =
     '<div class="row"><span class="name"><span class="dot"></span>' + j + '</span>' +
-    '<span class="val"><b id="v_' + j + '">' + servo[j] + '</b>°</span></div>' +
-    '<input type="range" min="' + SIM_MIN + '" max="' + SIM_MAX + '" step="1" value="' + servo[j] + '" id="s_' + j + '">' +
-    '<div class="limits" id="lim_' + j + '">robot limit ' + limMin + '–' + limMax + '</div>';
+    '<span class="val"><b id="v_' + j + '">' + servo[j] + '</b>° servo' + kinPart + '</span></div>' +
+    '<input type="range" min="' + sMin + '" max="' + sMax + '" step="1" value="' + servo[j] + '" id="s_' + j + '">' +
+    '<div class="limits" id="lim_' + j + '"></div>' + pulsePart;
   slidersEl.appendChild(wrap);
   valEls[j] = document.getElementById("v_" + j);
   document.getElementById("s_" + j).addEventListener("input", (e) => {
-    servo[j] = Number(e.target.value);
-    valEls[j].textContent = servo[j];
+    const clamped = setServoAngle(j, Number(e.target.value));
+    document.getElementById("s_" + j).value = clamped;
+    valEls[j].textContent = clamped;
     refreshJointUI(j);
     update();
   });
@@ -741,10 +855,10 @@ function applyPose(name) {
   if (!p) return;
   JOINTS.forEach((j) => {
     if (p[j] == null) return;
-    servo[j] = p[j];
+    const clamped = setServoAngle(j, p[j]);
     const s = document.getElementById("s_" + j);
-    if (s) s.value = p[j];
-    if (valEls[j]) valEls[j].textContent = p[j];
+    if (s) s.value = clamped;
+    if (valEls[j]) valEls[j].textContent = clamped;
     refreshJointUI(j);
   });
   update();

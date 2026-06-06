@@ -372,8 +372,8 @@ Each joint maps as `servo = zero_deg + sign * kinematic_angle`:
 ```yaml
   joints:
     base:     { zero_deg: 90, sign: 1 }    # servo 90 = pointing forward (+X)
-    shoulder: { zero_deg: -60, sign: 1 }  # example tuned values — re-measure on your arm
-    elbow:    { zero_deg: 20, sign: -1 }
+    shoulder: { zero_deg: 180, sign: -1 } # kin = 180 − servo° — tune per arm
+    elbow:    { zero_deg: 180, sign: 1 }  # kin = servo − 180° — inverted horn, bends down
     wrist:    { zero_deg: 0, sign: -1 }
 ```
 
