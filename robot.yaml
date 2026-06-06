@@ -34,21 +34,21 @@ joints:
     channel: 2
     enabled: true
     min: 0
-    max: 160
+    max: 180
     resting: 0
 
   - name: elbow
     channel: 4
     enabled: true
     min: 50
-    max: 160
+    max: 180
     resting: 50
 
   - name: wrist
     channel: 6
     enabled: true
     min: 25
-    max: 147
+    max: 180
     resting: 90
 
   - name: wrist_rot
