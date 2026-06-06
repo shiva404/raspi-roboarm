@@ -40,9 +40,9 @@ joints:
   - name: elbow
     channel: 4
     enabled: true
-    min: 30
+    min: 55
     max: 180
-    resting: 30
+    resting: 55
 
   - name: wrist
     channel: 6
