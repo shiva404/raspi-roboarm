@@ -2,11 +2,12 @@
 # Edit angles here and re-run — no code changes needed.
 #
 #   min / max     — safe travel limits (degrees); motion is clamped to this range
-#   resting       — home position on startup and for `roboarm home`
 #   channel       — PCA9685 header (alternating: 0, 2, 4, 6, 8, 10)
 #   enabled       — set true only for servos you have physically wired
 #   min_pulse_us / max_pulse_us — optional; set via `roboarm calibrate`
 #                                 (saved to robot.calibration.yaml, gitignored)
+#
+# Home angles live in poses.home — `roboarm home` uses that pose (not per-joint fields).
 
 board:
   address: 0x40
@@ -28,51 +29,45 @@ joints:
     enabled: true
     min: 0
     max: 180
-    resting: 90
 
   - name: shoulder
     channel: 2
     enabled: true
     min: 0
     max: 180
-    resting: 0
 
   - name: elbow
     channel: 4
     enabled: true
     min: 95          # travel limit — pulse map uses pulse_min_angle in robot.calibration.yaml
     max: 180
-    resting: 110     # shoulder@0 needs ~110° to clear upper arm (ready uses 100° @ shoulder 60°)
 
   - name: wrist
     channel: 6
     enabled: true
     min: 25
     max: 180
-    resting: 90
 
   - name: wrist_rot
     channel: 8
     enabled: true
     min: 0
     max: 150
-    resting: 90
 
   - name: gripper
     channel: 10
     enabled: true
     min: 60
     max: 110
-    resting: 90
 
-# Named poses — reach them with `roboarm pose <name>`.
+# Named poses — reach them with `roboarm pose <name>` or `roboarm home` (uses home).
 # Angles are servo° within joints.min/max, tuned for geometry.joints calibration.
 # gripper: 60 = open, 110 = closed (swap if yours is reversed).
 poses:
   home:        { base: 90,  shoulder: 0,   elbow: 110, wrist: 90,  wrist_rot: 90, gripper: 90 }   # shoulder 0 — elbow needs ~110° to clear
   ready:       { base: 90,  shoulder: 60,  elbow: 100, wrist: 90,  wrist_rot: 90, gripper: 90 }   # calibrated working pose
   reach_out:   { base: 90,  shoulder: 70,  elbow: 125, wrist: 85,  wrist_rot: 90, gripper: 60 }   # extended, shy of limits
-  park:        { base: 90,  shoulder: 0,   elbow: 110, wrist: 90,  wrist_rot: 90, gripper: 110 }  # resting + gripper closed
+  park:        { base: 90,  shoulder: 0,   elbow: 110, wrist: 90,  wrist_rot: 90, gripper: 110 }  # home + gripper closed
   look_left:   { base: 150, shoulder: 60,  elbow: 100, wrist: 90,  wrist_rot: 90, gripper: 90 }   # ready + base left
   look_right:  { base: 30,  shoulder: 60,  elbow: 100, wrist: 90,  wrist_rot: 90, gripper: 90 }   # ready + base right
   gripper_open:  { gripper: 60 }

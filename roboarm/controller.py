@@ -509,9 +509,9 @@ class RobotController:
         if saved:
             log.info("Restored angles from .roboarm_state.json: %s", saved)
         else:
-            log.info("No .roboarm_state.json — using resting/home angles from yaml")
+            log.info("No .roboarm_state.json — using poses.home angles from yaml")
         for name, s in self.servos.items():
-            src = "state" if name in saved else "yaml resting"
+            src = "state" if name in saved else "poses.home"
             log.info(
                 "startup [%s] %.1f° (%s) | %s",
                 name,

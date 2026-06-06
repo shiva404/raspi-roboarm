@@ -130,7 +130,6 @@ class ServoConfig:
             "channel": self.channel,
             "min": self.soft_min_angle,
             "max": self.soft_max_angle,
-            "resting": self.home_angle,
             "min_pulse_us": self.min_pulse_us,
             "max_pulse_us": self.max_pulse_us,
             "invert": self.invert,
@@ -172,7 +171,6 @@ def _servo_from_dict(d: dict) -> ServoConfig:
         max_angle=float(hi),
         soft_min_angle=float(d.get("soft_min_angle", lo)),
         soft_max_angle=float(d.get("soft_max_angle", hi)),
-        home_angle=float(d.get("resting", d.get("home_angle", 90.0))),
         invert=bool(d.get("invert", False)),
         enabled=bool(d.get("enabled", True)),
         max_speed_dps=(
@@ -208,6 +206,29 @@ def _geometry_from_dict(d: dict | None) -> ArmGeometry | None:
         elbow_map=_joint_map_from_dict(joints.get("elbow")),
         wrist_map=_joint_map_from_dict(joints.get("wrist")),
     )
+
+
+def _apply_home_angles(
+    joints: list[ServoConfig],
+    poses: dict[str, dict[str, float]],
+    raw_joints: list[dict],
+) -> None:
+    """Set each joint's home_angle from poses.home (single source of truth).
+
+    Legacy per-joint ``resting`` in yaml is still read if a joint is missing
+    from the home pose. Otherwise falls back to mid-travel.
+    """
+    home = poses.get("home") or {}
+    raw_by_name = {j["name"]: j for j in raw_joints if "name" in j}
+    for joint in joints:
+        if joint.name in home:
+            joint.home_angle = float(home[joint.name])
+            continue
+        raw = raw_by_name.get(joint.name, {})
+        if "resting" in raw or "home_angle" in raw:
+            joint.home_angle = float(raw.get("resting", raw.get("home_angle", 90.0)))
+        else:
+            joint.home_angle = (joint.soft_min_angle + joint.soft_max_angle) / 2
 
 
 def _motion_from_dict(d: dict | None) -> MotionConfig:
@@ -281,11 +302,13 @@ class RobotConfig:
     @classmethod
     def from_yaml_data(cls, data: dict) -> "RobotConfig":
         board = data.get("board", {})
-        joints = [_servo_from_dict(j) for j in data.get("joints", [])]
+        raw_joints = data.get("joints", [])
+        joints = [_servo_from_dict(j) for j in raw_joints]
         poses = {
             str(name): {str(j): float(a) for j, a in (angles or {}).items()}
             for name, angles in (data.get("poses") or {}).items()
         }
+        _apply_home_angles(joints, poses, raw_joints)
         return cls(
             address=int(board.get("address", PCA9685_ADDRESS)),
             freq_hz=int(board.get("freq_hz", SERVO_FREQ_HZ)),
@@ -436,7 +459,7 @@ def log_config_summary(cfg: RobotConfig, *, config_path: Path | None = None) -> 
             else f"pulse map tied to limits {lo:.0f}..{hi:.0f}° [no cal anchors]"
         )
         log.info(
-            "[%s] ch%d travel %.0f..%.0f° resting %.0f° | %s | µs %d..%d",
+            "[%s] ch%d travel %.0f..%.0f° home %.0f° (poses.home) | %s | µs %d..%d",
             j.name,
             j.channel,
             j.soft_min_angle,

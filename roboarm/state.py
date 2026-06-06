@@ -1,8 +1,8 @@
 """Persist last-known joint angles between CLI commands.
 
-Without this, every ``roboarm move`` starts from the resting angle in
-``robot.yaml``, not where the servo actually is — so jogs go the wrong way and
-small moves can look like nothing happened.
+Without this, every ``roboarm move`` starts from ``poses.home`` (or mid-travel),
+not where the servo actually is — so jogs go the wrong way and small moves can
+look like nothing happened.
 """
 
 from __future__ import annotations

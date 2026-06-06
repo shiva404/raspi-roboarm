@@ -150,11 +150,32 @@ def test_load_robot_yaml():
     assert elbow.channel == 4
     assert elbow.soft_min_angle == 95
     assert elbow.soft_max_angle == 180
-    assert elbow.home_angle == 110
-    assert cfg.poses["home"]["elbow"] == 110
+    assert elbow.home_angle == cfg.poses["home"]["elbow"] == 110
     shoulder = cfg.joint("shoulder")
-    assert shoulder.home_angle == 0
+    assert shoulder.home_angle == cfg.poses["home"]["shoulder"] == 0
     assert shoulder.soft_max_angle == 180
+
+
+def test_home_angles_from_pose_not_resting(tmp_path):
+    yaml_path = tmp_path / "robot.yaml"
+    yaml_path.write_text(
+        "joints:\n"
+        "  - name: base\n"
+        "    channel: 0\n"
+        "    min: 0\n"
+        "    max: 180\n"
+        "  - name: elbow\n"
+        "    channel: 4\n"
+        "    min: 95\n"
+        "    max: 180\n"
+        "poses:\n"
+        "  home:\n"
+        "    base: 45\n"
+        "    elbow: 120\n"
+    )
+    cfg = load_config(yaml_path)
+    assert cfg.joint("base").home_angle == 45
+    assert cfg.joint("elbow").home_angle == 120
 
 
 def test_poses_loaded_and_reachable():

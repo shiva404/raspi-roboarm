@@ -243,27 +243,32 @@ function configFromYaml(data) {
   const g = data.geometry || {};
   const gj = g.joints || {};
   const limits = {};
-  const resting = {};
+  const homePose = data.poses?.home || {};
+  const homeAngles = {};
   const servos = {};
   for (const j of data.joints || []) {
     const min = Number(j.min);
     const max = Number(j.max);
     limits[j.name] = [min, max];
-    resting[j.name] = Number(j.resting ?? j.home_angle ?? 90);
+    const home =
+      homePose[j.name] != null
+        ? Number(homePose[j.name])
+        : Number(j.resting ?? j.home_angle ?? (min + max) / 2);
+    homeAngles[j.name] = home;
     servos[j.name] = {
       name: j.name,
       min,
       max,
       pulseMin: j.pulse_min_angle != null ? Number(j.pulse_min_angle) : null,
       pulseMax: j.pulse_max_angle != null ? Number(j.pulse_max_angle) : null,
-      resting: resting[j.name],
+      home,
       minPulse: Number(j.min_pulse_us ?? 500),
       maxPulse: Number(j.max_pulse_us ?? 2500),
       invert: Boolean(j.invert),
       hasCal: j.min_pulse_us != null || j.max_pulse_us != null,
     };
   }
-  const defaults = { ...resting };
+  const defaults = { ...homeAngles };
   const poses = {};
   for (const [name, angles] of Object.entries(data.poses || {})) {
     poses[name] = { ...defaults };
@@ -280,15 +285,15 @@ function configFromYaml(data) {
       hand: Number(g.hand ?? 60),
     },
     maps: {
-      base: jointMap(gj, "base", resting.base ?? 90),
-      shoulder: jointMap(gj, "shoulder", resting.shoulder ?? 0),
-      elbow: jointMap(gj, "elbow", resting.elbow ?? 45),
-      wrist: jointMap(gj, "wrist", resting.wrist ?? 90),
-      wrist_rot: jointMap(gj, "wrist_rot", resting.wrist_rot ?? 90),
+      base: jointMap(gj, "base", homeAngles.base ?? 90),
+      shoulder: jointMap(gj, "shoulder", homeAngles.shoulder ?? 0),
+      elbow: jointMap(gj, "elbow", homeAngles.elbow ?? 45),
+      wrist: jointMap(gj, "wrist", homeAngles.wrist ?? 90),
+      wrist_rot: jointMap(gj, "wrist_rot", homeAngles.wrist_rot ?? 90),
     },
     limits,
     poses,
-    resting,
+    homeAngles,
     servos,
   };
 }
@@ -319,7 +324,7 @@ function snapshotConfig(cfg) {
   const snap = { limits: {}, servos: {}, maps: {} };
   for (const [k, [lo, hi]] of Object.entries(cfg.limits)) {
     snap.limits[k] = [lo, hi];
-    snap.servos[k] = { min: cfg.servos[k].min, max: cfg.servos[k].max, resting: cfg.servos[k].resting };
+    snap.servos[k] = { min: cfg.servos[k].min, max: cfg.servos[k].max, home: cfg.servos[k].home };
   }
   for (const [k, m] of Object.entries(cfg.maps)) {
     snap.maps[k] = { zero: m.zero, sign: m.sign };
@@ -436,9 +441,9 @@ async function bootstrap() {
 
   UNIT = CONFIG.unit;
   JOINTS = Object.keys(CONFIG.limits);
-  const startPose = CONFIG.poses.park || CONFIG.poses.home || CONFIG.resting;
-  servo = { ...CONFIG.resting, ...startPose };
-  JOINTS.forEach((j) => setServoAngle(j, servo[j] ?? CONFIG.resting[j] ?? 90));
+  const startPose = CONFIG.poses.park || CONFIG.poses.home || CONFIG.homeAngles;
+  servo = { ...CONFIG.homeAngles, ...startPose };
+  JOINTS.forEach((j) => setServoAngle(j, servo[j] ?? CONFIG.homeAngles[j] ?? 90));
 
   buildScene();
   buildUI();
@@ -1050,7 +1055,7 @@ document.getElementById("poses").innerHTML = "";
 valEls = {};
 refreshPanelTitle();
 JOINTS.forEach((j) => {
-  if (servo[j] == null) servo[j] = CONFIG.resting[j] ?? 90;
+  if (servo[j] == null) servo[j] = CONFIG.homeAngles[j] ?? 90;
   const [sMin, sMax] = sliderBounds(j);
   const v = Math.max(sMin, Math.min(sMax, servo[j]));
   servo[j] = v;
