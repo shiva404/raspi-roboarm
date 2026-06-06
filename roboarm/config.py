@@ -14,6 +14,8 @@ from pathlib import Path
 
 import yaml
 
+from .kinematics import ArmGeometry, JointMap
+
 # --- PCA9685 board defaults -------------------------------------------------
 
 PCA9685_ADDRESS = 0x40
@@ -119,6 +121,33 @@ def _servo_from_dict(d: dict) -> ServoConfig:
     )
 
 
+def _joint_map_from_dict(d: dict | None) -> JointMap:
+    d = d or {}
+    return JointMap(
+        zero_deg=float(d.get("zero_deg", 0.0)),
+        sign=float(d.get("sign", 1.0)),
+    )
+
+
+def _geometry_from_dict(d: dict | None) -> ArmGeometry | None:
+    """Build ArmGeometry from the optional ``geometry:`` section of robot.yaml."""
+    if not d:
+        return None
+    joints = d.get("joints", {}) or {}
+    return ArmGeometry(
+        units=str(d.get("units", "mm")),
+        shoulder_height=float(d.get("shoulder_height", 80.0)),
+        upper_arm=float(d.get("upper_arm", 105.0)),
+        forearm=float(d.get("forearm", 100.0)),
+        hand=float(d.get("hand", 60.0)),
+        elbow=str(d.get("elbow", "up")),
+        base_map=_joint_map_from_dict(joints.get("base")),
+        shoulder_map=_joint_map_from_dict(joints.get("shoulder")),
+        elbow_map=_joint_map_from_dict(joints.get("elbow")),
+        wrist_map=_joint_map_from_dict(joints.get("wrist")),
+    )
+
+
 def _motion_from_dict(d: dict | None) -> MotionConfig:
     d = d or {}
     return MotionConfig(
@@ -141,6 +170,8 @@ class RobotConfig:
     motion: MotionConfig = field(default_factory=MotionConfig)
     # Named poses: {pose_name: {joint_name: angle}} — see robot.yaml `poses:`.
     poses: dict[str, dict[str, float]] = field(default_factory=dict)
+    # Optional arm dimensions + joint mapping for IK — see robot.yaml `geometry:`.
+    geometry: ArmGeometry | None = None
 
     def joint(self, name_or_channel: str | int) -> ServoConfig:
         for j in self.joints:
@@ -199,6 +230,7 @@ class RobotConfig:
             joints=joints,
             motion=_motion_from_dict(data.get("motion")),
             poses=poses,
+            geometry=_geometry_from_dict(data.get("geometry")),
         )
 
     @classmethod

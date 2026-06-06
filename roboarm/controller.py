@@ -400,6 +400,63 @@ class RobotController:
         )
         return targets
 
+    # --- inverse / forward kinematics --------------------------------------
+
+    def _require_geometry(self):
+        geom = self.config.geometry
+        if geom is None:
+            raise ValueError(
+                "No arm geometry configured. Add a `geometry:` section to "
+                "robot.yaml (see the comments there) to use reach/fk."
+            )
+        return geom
+
+    def solve_reach(
+        self,
+        x: float,
+        y: float,
+        z: float,
+        pitch_deg: float | None = None,
+        elbow: str | None = None,
+    ):
+        """Run IK for world point (x, y, z); returns an IKSolution (no movement)."""
+        from .kinematics import solve_ik
+
+        return solve_ik(self._require_geometry(), x, y, z, pitch_deg=pitch_deg, elbow=elbow)
+
+    def move_to_xyz(
+        self,
+        x: float,
+        y: float,
+        z: float,
+        pitch_deg: float | None = None,
+        elbow: str | None = None,
+        speed_dps: float | None = None,
+        duration_s: float | None = None,
+    ):
+        """Solve IK and smoothly move the arm so the tool reaches (x, y, z).
+
+        Only joints that exist and are enabled are commanded; angles are still
+        clamped to each joint's soft limits. Returns the IKSolution.
+        """
+        sol = self.solve_reach(x, y, z, pitch_deg=pitch_deg, elbow=elbow)
+        targets = {
+            name: angle
+            for name, angle in sol.servo_angles.items()
+            if name in self.servos
+        }
+        if targets:
+            self.move_many(targets, speed_dps=speed_dps, duration_s=duration_s)
+        return sol
+
+    def current_tip(self) -> dict:
+        """Forward kinematics on the current servo angles -> tool (x, y, z)."""
+        from .kinematics import forward_kinematics
+
+        geom = self._require_geometry()
+        angles = {name: s.angle for name, s in self.servos.items()}
+        return forward_kinematics(geom, angles)
+
     def release_all(self) -> None:
         for s in self.servos.values():
             s.release()

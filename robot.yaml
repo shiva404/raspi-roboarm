@@ -40,9 +40,9 @@ joints:
   - name: elbow
     channel: 4
     enabled: true
-    min: 55
+    min: 50
     max: 160
-    resting: 55
+    resting: 50
 
   - name: wrist
     channel: 6
@@ -68,7 +68,7 @@ joints:
 # Named poses — reach them with `roboarm pose <name>`.
 # gripper: 60 = open, 110 = closed (swap if yours is reversed).
 poses:
-  home:        { base: 90,  shoulder: 0,   elbow: 55,  wrist: 90,  wrist_rot: 90, gripper: 90 }
+  home:        { base: 90,  shoulder: 0,   elbow: 50,  wrist: 90,  wrist_rot: 90, gripper: 90 }
   ready:       { base: 90,  shoulder: 60,  elbow: 100, wrist: 90,  wrist_rot: 90, gripper: 90 }
   reach_out:   { base: 90,  shoulder: 80,  elbow: 140, wrist: 80,  wrist_rot: 90, gripper: 60 }
   park:        { base: 90,  shoulder: 10,  elbow: 50,  wrist: 40,  wrist_rot: 90, gripper: 110 }
@@ -76,3 +76,33 @@ poses:
   look_right:  { base: 30,  shoulder: 60,  elbow: 100, wrist: 90,  wrist_rot: 90, gripper: 90 }
   gripper_open:  { gripper: 60 }
   gripper_close: { gripper: 110 }
+
+# --- Arm geometry for inverse kinematics (roboarm reach / roboarm fk) --------
+# Lets you say "put the gripper at (x, y, z)" instead of setting each joint.
+# This is OPTIONAL — every other command works without it.
+#
+# HOW TO TUNE (takes ~10 min, no code changes):
+#   1. Measure the link lengths with a ruler and put them below (any unit,
+#      just be consistent — mm recommended). Coordinates you pass to `reach`
+#      use the same unit.
+#   2. Map each joint's "kinematic" angle to its servo angle:
+#        servo_angle = zero_deg + sign * kinematic_angle
+#      Kinematic zero means:
+#        base     0 = arm points straight forward (+X)
+#        shoulder 0 = upper arm horizontal        (+ = tilts up)
+#        elbow    0 = arm fully straight          (+/- = bend)
+#        wrist    0 = hand in line with forearm    (+ = tilts up)
+#   3. Move the arm to a known pose, run `roboarm fk`, and adjust zero_deg/sign
+#      until the reported (x, y, z) matches reality. Then `reach` will be right.
+geometry:
+  units: mm
+  shoulder_height: 80     # table up to the shoulder joint axis  (MEASURE)
+  upper_arm: 105          # shoulder axis -> elbow axis           (MEASURE)
+  forearm: 100            # elbow axis -> wrist axis              (MEASURE)
+  hand: 60                # wrist axis -> gripper tip             (MEASURE)
+  elbow: up               # default elbow bend: up or down
+  joints:
+    base:     { zero_deg: 90, sign: 1 }   # servo 90 = pointing forward
+    shoulder: { zero_deg: 0,  sign: 1 }
+    elbow:    { zero_deg: 45, sign: 1 }
+    wrist:    { zero_deg: 90, sign: 1 }

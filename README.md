@@ -131,7 +131,7 @@ order in `robot.yaml`.
 |-------------|------------|------------|-----------|-----|-----|---------|
 | 0 | `base` | **CH00** | `0` | 0 | 180 | 90 |
 | 1 | `shoulder` | **CH02** | `2` | 0 | 160 | 0 |
-| 2 | `elbow` | **CH04** | `4` | 45 | 160 | 45 |
+| 2 | `elbow` | **CH04** | `4` | 50 | 160 | 50 |
 | 3 | `wrist` | **CH06** | `6` | 25 | 147 | 90 |
 | 4 | `wrist_rot` | **CH08** | `8` | 0 | 150 | 90 |
 | 5 | `gripper` | **CH10** | `10` | 60 | 110 | 90 |
@@ -296,9 +296,9 @@ project root. Edit this file to readjust the arm — no code changes needed.
 joints:
   - name: elbow
     channel: 4
-    min: 45        # safe lower limit (degrees)
+    min: 50        # safe lower limit (degrees)
     max: 160       # safe upper limit
-    resting: 45    # home position for `roboarm home`
+    resting: 50    # home position for `roboarm home`
 ```
 
 Changes take effect on the next run.

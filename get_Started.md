@@ -133,7 +133,7 @@ Only after base works reliably:
 |-------|-------------|---------|-----------------------------------------|
 | 1     | base        | CH00    | ✅ do this first                        |
 | 2     | shoulder    | CH02    | `roboarm move shoulder 45 --speed 20`   |
-| 3     | elbow       | CH04    | resting is 45°, not 90°                 |
+| 3     | elbow       | CH04    | resting is 50°, not 90°                 |
 | 4     | wrist       | CH06    |                                         |
 | 5     | wrist_rot   | CH08    |                                         |
 | 6     | gripper     | CH10    | small range: 60–110°                    |
@@ -152,6 +152,8 @@ Only after base works reliably:
 | Test range smoothly      | `roboarm sweep base`                 |
 | Live tinkering           | `roboarm repl`                       |
 | Glide through poses      | `roboarm flow ready reach_out`       |
+| Reach an (x,y,z) point   | `roboarm reach 150 0 120 --dry-run`  |
+| Where is the tip now?    | `roboarm fk`                         |
 | See every pulse          | `roboarm -vv move base 90`           |
 
 ---
@@ -193,6 +195,7 @@ and practice `move base 90`, `home`, `info`.
 5. Repeat until all 6 work
 6. Coordinated poses (`roboarm pose ready`)
 7. Flowing paths through several poses (`roboarm flow ...`)
+8. Reaching points in space with inverse kinematics (`roboarm reach x y z`)
 
 ---
 
@@ -319,3 +322,89 @@ Only use `--stagger` if the Pi browns out from current — not for smoothness.
 
 - Lower `--speed` before changing other settings.
 - `roboarm release` if a joint buzzes, strains, or gets hot.
+
+---
+
+## Phase 9 — Inverse kinematics: command a point in space
+
+So far you move *joints* (`move`, `pose`, `flow`). IK lets you instead say
+**"put the gripper here"** with an (x, y, z) coordinate, and the math works out
+the base/shoulder/elbow/wrist angles for you.
+
+It's **optional** — everything else works without it — and it needs a one-time
+tune of your arm's real dimensions. Take it slow; an untuned arm will reach to
+the wrong place.
+
+### The coordinate frame
+
+```
+origin = on the table, directly under the base rotation axis
+  +X = straight forward      +Y = to the arm's left      +Z = up
+```
+
+Coordinates use whatever unit you set in `robot.yaml` → `geometry.units`
+(millimetres recommended). So `reach 150 0 120` means "150 mm forward, centred,
+120 mm up".
+
+### Step 1 — Measure your arm (edit `robot.yaml` → `geometry:`)
+
+With a ruler, measure and fill in:
+
+```yaml
+geometry:
+  units: mm
+  shoulder_height: 80     # table up to the shoulder joint axis
+  upper_arm: 105          # shoulder axis -> elbow axis
+  forearm: 100            # elbow axis -> wrist axis
+  hand: 60                # wrist axis -> gripper tip
+```
+
+### Step 2 — Tune the joint mapping with `fk`
+
+The math uses clean "kinematic" angles, but your servos don't share that zero.
+Each joint maps as `servo = zero_deg + sign * kinematic_angle`:
+
+```yaml
+  joints:
+    base:     { zero_deg: 90, sign: 1 }   # servo 90 = pointing forward (+X)
+    shoulder: { zero_deg: 0,  sign: 1 }   # kinematic 0 = upper arm horizontal
+    elbow:    { zero_deg: 45, sign: 1 }   # kinematic 0 = arm straight
+    wrist:    { zero_deg: 90, sign: 1 }   # kinematic 0 = hand in line w/ forearm
+```
+
+To dial it in: move the arm to a spot you can measure, then run
+
+```bash
+poetry run roboarm fk      # prints where it thinks the tip is
+```
+
+Adjust `zero_deg` / `sign` until the reported (x, y, z) matches a tape measure.
+Flip `sign` to `-1` if a joint moves the wrong way. This is the whole tuning job.
+
+### Step 3 — Preview before you move (`--dry-run`)
+
+Always dry-run a new target first — it prints the joint angles without moving:
+
+```bash
+poetry run roboarm reach 150 0 120 --dry-run
+poetry run roboarm reach 150 0 120 --pitch -90 --dry-run   # gripper points down
+```
+
+If it says `OUT OF RANGE`, the point is outside the arm's reach — pick a closer one.
+
+### Step 4 — Reach for real (slowly)
+
+```bash
+poetry run roboarm reach 150 0 120 --pitch -90 --speed 40
+poetry run roboarm reach 120 60 100 --speed 40    # forward + to the left
+poetry run roboarm fk                             # confirm where it ended up
+```
+
+**Options:** `--pitch` (hand angle: 0 level, -90 down), `--elbow up/down`
+(which way the elbow bends), `--speed` / `--duration`, `--dry-run`.
+
+Practice in mock on your laptop first:
+
+```bash
+poetry run roboarm --mock reach 150 0 120 --pitch -90 --dry-run
+```

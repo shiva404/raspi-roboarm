@@ -94,9 +94,9 @@ def test_load_robot_yaml():
     assert cfg.motion.profile == "linear"
     elbow = cfg.joint("elbow")
     assert elbow.channel == 4
-    assert elbow.soft_min_angle == 45
+    assert elbow.soft_min_angle == 50
     assert elbow.soft_max_angle == 160
-    assert elbow.home_angle == 45
+    assert elbow.home_angle == 50
     shoulder = cfg.joint("shoulder")
     assert shoulder.home_angle == 0
     assert shoulder.soft_max_angle == 160
@@ -296,6 +296,88 @@ def test_save_calibration_override_creates_file(tmp_path):
     text2 = out.read_text()
     assert "min_pulse_us: 560" in text2
     assert text2.count("name: base") == 1
+
+
+def test_ik_fk_round_trip():
+    """Solve IK for a point, then FK on the result should return that point."""
+    from roboarm.kinematics import ArmGeometry, forward_kinematics, solve_ik
+
+    geom = ArmGeometry(shoulder_height=80, upper_arm=105, forearm=100, hand=60)
+    sol = solve_ik(geom, x=150, y=40, z=130, pitch_deg=-30)
+    assert sol.reachable
+    tip = forward_kinematics(geom, sol.servo_angles)
+    assert abs(tip["x"] - 150) < 1e-6
+    assert abs(tip["y"] - 40) < 1e-6
+    assert abs(tip["z"] - 130) < 1e-6
+    assert abs(tip["pitch_deg"] - (-30)) < 1e-6
+
+
+def test_ik_unreachable_flagged():
+    from roboarm.kinematics import ArmGeometry, solve_ik
+
+    geom = ArmGeometry(shoulder_height=80, upper_arm=100, forearm=100)
+    sol = solve_ik(geom, x=10000, y=0, z=80)
+    assert not sol.reachable
+    assert sol.warnings
+
+
+def test_ik_joint_mapping_applied():
+    from roboarm.kinematics import ArmGeometry, JointMap, solve_ik
+
+    geom = ArmGeometry(
+        upper_arm=100,
+        forearm=100,
+        base_map=JointMap(zero_deg=90, sign=1),
+    )
+    # Target on +X means azimuth 0 -> base servo should be exactly zero_deg.
+    sol = solve_ik(geom, x=150, y=0, z=geom.shoulder_height)
+    assert abs(sol.servo_angles["base"] - 90) < 1e-6
+
+
+def test_elbow_up_down_differ():
+    from roboarm.kinematics import ArmGeometry, solve_ik
+
+    geom = ArmGeometry(shoulder_height=80, upper_arm=105, forearm=100)
+    up = solve_ik(geom, 150, 0, 130, elbow="up")
+    down = solve_ik(geom, 150, 0, 130, elbow="down")
+    assert up.kin_angles["elbow"] * down.kin_angles["elbow"] <= 0
+
+
+def test_controller_move_to_xyz_uses_geometry():
+    from roboarm.kinematics import ArmGeometry
+
+    cfg = RobotConfig(
+        joints=[
+            ServoConfig(name="base", channel=0, enabled=True, min_angle=0, max_angle=180,
+                        soft_min_angle=0, soft_max_angle=180),
+            ServoConfig(name="shoulder", channel=2, enabled=True, min_angle=0, max_angle=180,
+                        soft_min_angle=-90, soft_max_angle=180),
+            ServoConfig(name="elbow", channel=4, enabled=True, min_angle=0, max_angle=180,
+                        soft_min_angle=-180, soft_max_angle=180),
+        ],
+        geometry=ArmGeometry(shoulder_height=80, upper_arm=105, forearm=100),
+    )
+    c = RobotController(config=cfg, force_mock=True, update_hz=200)
+    sol = c.move_to_xyz(150, 0, 130, speed_dps=200)
+    assert sol.reachable
+    assert "base" in sol.servo_angles
+
+
+def test_controller_reach_without_geometry_raises():
+    cfg = RobotConfig(joints=[ServoConfig(name="base", channel=0, enabled=True)])
+    c = RobotController(config=cfg, force_mock=True)
+    try:
+        c.solve_reach(100, 0, 100)
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_geometry_loads_from_robot_yaml():
+    cfg = load_config(Path(__file__).resolve().parent.parent / "robot.yaml")
+    assert cfg.geometry is not None
+    assert cfg.geometry.upper_arm > 0
+    assert cfg.geometry.base_map.zero_deg == 90
 
 
 def test_close_holds_by_default():

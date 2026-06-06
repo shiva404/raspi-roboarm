@@ -12,6 +12,8 @@ Run ``roboarm --help`` to see everything. Highlights:
     roboarm poses           # list named poses from robot.yaml
     roboarm pose ready      # move the whole arm to a named pose
     roboarm flow a b c      # visit several poses (1s pause at each)
+    roboarm reach 150 0 120 # move gripper to (x,y,z) via inverse kinematics
+    roboarm fk              # show current gripper tip position
     roboarm release         # cut torque (servos go limp)
     roboarm calibrate base  # interactively find pulse limits, then save
     roboarm repl            # live interactive control loop
@@ -334,6 +336,77 @@ def flow(ctx: Ctx, names: tuple[str, ...], speed, duration, dwell: float, glide:
         )
         console.print(f"[green]flowed through:[/] {' -> '.join(names)}")
     except KeyError as exc:
+        console.print(f"[red]{exc}[/]")
+    finally:
+        ctx.close()
+
+
+@cli.command()
+@click.argument("x", type=float)
+@click.argument("y", type=float)
+@click.argument("z", type=float)
+@click.option("--pitch", type=float, default=None, help="Hand pitch deg (0=level, -90=down).")
+@click.option("--elbow", type=click.Choice(["up", "down"]), default=None, help="Elbow branch.")
+@click.option("--speed", type=float, default=None, help="deg/sec.")
+@click.option("--duration", type=float, default=None, help="seconds for the move.")
+@click.option("--dry-run", is_flag=True, help="Show the IK solution without moving.")
+@pass_ctx
+def reach(ctx: Ctx, x, y, z, pitch, elbow, speed, duration, dry_run):
+    """Move the gripper to world point X Y Z using inverse kinematics.
+
+    Coordinates use the unit from robot.yaml `geometry` (mm by default), with
+    +X forward, +Y left, +Z up, origin under the base axis on the table.
+
+    Example: `roboarm reach 150 0 120 --pitch -90` reaches forward and points down.
+    """
+    c = ctx.controller()
+    try:
+        if dry_run:
+            sol = c.solve_reach(x, y, z, pitch_deg=pitch, elbow=elbow)
+        else:
+            sol = c.move_to_xyz(
+                x, y, z, pitch_deg=pitch, elbow=elbow, speed_dps=speed, duration_s=duration
+            )
+        table = Table(title=f"reach ({x:g}, {y:g}, {z:g})"
+                            + ("" if sol.reachable else "  [red]OUT OF RANGE[/]"))
+        table.add_column("Joint")
+        table.add_column("Kinematic", justify="right")
+        table.add_column("Servo", justify="right")
+        for name in sol.servo_angles:
+            kin = sol.kin_angles.get(name, 0.0)
+            in_arm = name in c.servos
+            servo = f"{sol.servo_angles[name]:.1f}" + ("" if in_arm else " (n/a)")
+            table.add_row(name, f"{kin:.1f}", servo)
+        console.print(table)
+        for w in sol.warnings:
+            console.print(f"[yellow]warning:[/] {w}")
+        if dry_run:
+            console.print("[cyan]dry run — nothing moved.[/]")
+    except (ValueError, KeyError) as exc:
+        console.print(f"[red]{exc}[/]")
+    finally:
+        ctx.close()
+
+
+@cli.command()
+@pass_ctx
+def fk(ctx: Ctx):
+    """Show where the gripper tip is now (forward kinematics).
+
+    Use this to tune geometry: move the arm to a known spot, run `fk`, and
+    adjust geometry.joints zero_deg/sign in robot.yaml until it matches reality.
+    """
+    c = ctx.controller()
+    try:
+        tip = c.current_tip()
+        u = c.config.geometry.units
+        console.print(
+            f"[green]tip[/] x={tip['x']:.1f}{u}  y={tip['y']:.1f}{u}  "
+            f"z={tip['z']:.1f}{u}  pitch={tip['pitch_deg']:.1f}deg"
+        )
+        wx, wy, wz = tip["wrist"]
+        console.print(f"[dim]wrist x={wx:.1f}{u}  y={wy:.1f}{u}  z={wz:.1f}{u}[/]")
+    except (ValueError, KeyError) as exc:
         console.print(f"[red]{exc}[/]")
     finally:
         ctx.close()
