@@ -181,11 +181,16 @@ def _servo_from_dict(d: dict) -> ServoConfig:
     )
 
 
-def _joint_map_from_dict(d: dict | None) -> JointMap:
+def _joint_map_from_dict(
+    d: dict | None, limits: tuple[float, float] | None = None
+) -> JointMap:
     d = d or {}
+    lo, hi = (limits if limits is not None else (None, None))
     return JointMap(
         zero_deg=float(d.get("zero_deg", 0.0)),
         sign=float(d.get("sign", 1.0)),
+        min_deg=lo,
+        max_deg=hi,
     )
 
 
@@ -197,6 +202,7 @@ _GEOMETRY_SCALAR_KEYS = (
     "wrist_rot_offset",
     "hand",
     "gripper_offset",
+    "gripper_motor",
     "elbow",
 )
 _GEOMETRY_JOINT_KEYS = ("base", "shoulder", "elbow", "wrist", "wrist_rot")
@@ -211,11 +217,18 @@ def _require_geometry_key(d: dict, key: str) -> object:
     return d[key]
 
 
-def geometry_from_dict(d: dict | None) -> ArmGeometry | None:
+def geometry_from_dict(
+    d: dict | None,
+    joint_limits: dict[str, tuple[float, float]] | None = None,
+) -> ArmGeometry | None:
     """Build :class:`~roboarm.kinematics.ArmGeometry` from ``robot.yaml`` ``geometry:``.
 
     When the section is present, every scalar and ``joints.*`` entry is required —
     no hardcoded fallbacks. Returns ``None`` only if ``geometry:`` is omitted entirely.
+
+    ``joint_limits`` maps joint name -> (min_deg, max_deg) servo travel limits so
+    IK can reject solutions the servos can't reach. Pass the values straight from
+    each :class:`ServoConfig` (soft limits). Omit it to leave IK geometry-only.
     """
     if not d:
         return None
@@ -229,6 +242,7 @@ def geometry_from_dict(d: dict | None) -> ArmGeometry | None:
             raise ValueError(
                 f"robot.yaml geometry.joints: missing required joint '{jn}'."
             )
+    limits = joint_limits or {}
     return ArmGeometry(
         units=str(_require_geometry_key(d, "units")),
         shoulder_height=float(_require_geometry_key(d, "shoulder_height")),
@@ -237,12 +251,13 @@ def geometry_from_dict(d: dict | None) -> ArmGeometry | None:
         wrist_rot_offset=float(_require_geometry_key(d, "wrist_rot_offset")),
         hand=float(_require_geometry_key(d, "hand")),
         gripper_offset=float(_require_geometry_key(d, "gripper_offset")),
+        gripper_motor=float(_require_geometry_key(d, "gripper_motor")),
         elbow=str(_require_geometry_key(d, "elbow")),
-        base_map=_joint_map_from_dict(joints["base"]),
-        shoulder_map=_joint_map_from_dict(joints["shoulder"]),
-        elbow_map=_joint_map_from_dict(joints["elbow"]),
-        wrist_map=_joint_map_from_dict(joints["wrist"]),
-        wrist_rot_map=_joint_map_from_dict(joints["wrist_rot"]),
+        base_map=_joint_map_from_dict(joints["base"], limits.get("base")),
+        shoulder_map=_joint_map_from_dict(joints["shoulder"], limits.get("shoulder")),
+        elbow_map=_joint_map_from_dict(joints["elbow"], limits.get("elbow")),
+        wrist_map=_joint_map_from_dict(joints["wrist"], limits.get("wrist")),
+        wrist_rot_map=_joint_map_from_dict(joints["wrist_rot"], limits.get("wrist_rot")),
     )
 
 
@@ -351,13 +366,16 @@ class RobotConfig:
             for name, angles in (data.get("poses") or {}).items()
         }
         _apply_home_angles(joints, poses, raw_joints)
+        joint_limits = {
+            j.name: (j.soft_min_angle, j.soft_max_angle) for j in joints
+        }
         return cls(
             address=int(board.get("address", PCA9685_ADDRESS)),
             freq_hz=int(board.get("freq_hz", SERVO_FREQ_HZ)),
             joints=joints,
             motion=_motion_from_dict(data.get("motion")),
             poses=poses,
-            geometry=geometry_from_dict(data.get("geometry")),
+            geometry=geometry_from_dict(data.get("geometry"), joint_limits),
         )
 
     @classmethod

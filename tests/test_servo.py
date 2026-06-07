@@ -387,6 +387,7 @@ def _test_geometry(**overrides) -> "ArmGeometry":
         "wrist_rot_offset": 0,
         "hand": 60,
         "gripper_offset": 0,
+        "gripper_motor": 0,
         "elbow": "up",
         "joints": {
             "base": {"zero_deg": 90, "sign": 1},
@@ -396,12 +397,13 @@ def _test_geometry(**overrides) -> "ArmGeometry":
             "wrist_rot": {"zero_deg": 90, "sign": 1},
         },
     }
+    limits = overrides.pop("limits", None)
     for key, val in overrides.items():
         if key == "joints":
             data["joints"].update(val)
         else:
             data[key] = val
-    geom = geometry_from_dict(data)
+    geom = geometry_from_dict(data, limits)
     assert isinstance(geom, ArmGeometry)
     return geom
 
@@ -505,6 +507,74 @@ def test_elbow_up_down_differ():
     assert up.kin_angles["elbow"] * down.kin_angles["elbow"] <= 0
 
 
+def _arm_geometry_with_limits(elbow_branch="down", **limits):
+    """Real-arm-style geometry (elbow servo = 180 + kin) with given servo limits."""
+    return _test_geometry(
+        shoulder_height=100,
+        hand=60,
+        elbow=elbow_branch,
+        joints={
+            "shoulder": {"zero_deg": 180, "sign": -1},
+            "elbow": {"zero_deg": 180, "sign": 1},
+        },
+        limits=limits,
+    )
+
+
+def test_ik_auto_selects_elbow_branch_within_limits():
+    """Default 'down' branch pushes elbow servo > 180°; IK falls back to 'up'."""
+    from roboarm.kinematics import solve_ik
+
+    geom = _arm_geometry_with_limits(
+        base=(0, 180), shoulder=(0, 180), elbow=(30, 180), wrist=(0, 180)
+    )
+    sol = solve_ik(geom, x=150, y=0, z=150, pitch_deg=-30)
+    assert sol.reachable
+    assert sol.elbow == "up"
+    # Every solved joint must land inside its travel limits.
+    assert 30 <= sol.servo_angles["elbow"] <= 180
+    assert 0 <= sol.servo_angles["shoulder"] <= 180
+    assert any("'up'" in w for w in sol.warnings)
+
+
+def test_ik_within_limits_no_branch_warning():
+    """When the preferred branch already fits, no fallback warning is emitted."""
+    from roboarm.kinematics import solve_ik
+
+    geom = _arm_geometry_with_limits(
+        elbow_branch="up", base=(0, 180), shoulder=(0, 180),
+        elbow=(30, 180), wrist=(0, 180),
+    )
+    sol = solve_ik(geom, x=150, y=0, z=150, pitch_deg=-30)
+    assert sol.reachable
+    assert sol.elbow == "up"
+    assert not any("branch" in w for w in sol.warnings)
+
+
+def test_ik_clamps_and_flags_when_no_branch_fits():
+    """No elbow branch fits the limits -> reachable False, clamped, warned."""
+    from roboarm.kinematics import solve_ik
+
+    # Tight elbow window neither branch can satisfy for this target.
+    geom = _arm_geometry_with_limits(
+        base=(0, 180), shoulder=(0, 180), elbow=(178, 180), wrist=(0, 180)
+    )
+    sol = solve_ik(geom, x=150, y=0, z=150, pitch_deg=-30)
+    assert not sol.reachable
+    assert 178 <= sol.servo_angles["elbow"] <= 180  # clamped into range
+    assert any("clamped" in w for w in sol.warnings)
+
+
+def test_ik_no_limits_behaves_as_before():
+    """Without limits (min/max None), IK ignores travel and never clamps."""
+    from roboarm.kinematics import solve_ik
+
+    geom = _test_geometry()  # no limits passed -> min_deg/max_deg None
+    sol = solve_ik(geom, x=150, y=40, z=130, pitch_deg=-30)
+    assert sol.reachable
+    assert not any("clamped" in w for w in sol.warnings)
+
+
 def test_controller_move_to_xyz_uses_geometry():
     cfg = RobotConfig(
         joints=[
@@ -544,7 +614,7 @@ def test_geometry_from_dict_requires_keys():
     with pytest.raises(ValueError, match="wrist_rot"):
         geometry_from_dict({
             "units": "mm", "shoulder_height": 1, "upper_arm": 1, "forearm": 1, "hand": 1,
-            "wrist_rot_offset": 0, "gripper_offset": 0, "elbow": "up",
+            "wrist_rot_offset": 0, "gripper_offset": 0, "gripper_motor": 0, "elbow": "up",
             "joints": {
                 "base": {"zero_deg": 0, "sign": 1},
                 "shoulder": {"zero_deg": 0, "sign": 1},
@@ -558,14 +628,18 @@ def test_geometry_loads_from_robot_yaml():
     cfg = load_config(Path(__file__).resolve().parent.parent / "robot.yaml")
     g = cfg.geometry
     assert g is not None
-    assert g.shoulder_height == 95
+    assert g.shoulder_height == 100
     assert g.upper_arm == 105
     assert g.forearm == 100
     assert g.wrist_rot_offset == 30
     assert g.hand == 140
     assert g.gripper_offset == -10
-    assert g.elbow == "down"
+    assert g.gripper_motor == 70
+    assert g.elbow == "up"
     assert g.units == "mm"
+    # Servo travel limits flow from joints.* into the IK joint maps.
+    assert g.elbow_map.min_deg == 30
+    assert g.elbow_map.max_deg == 180
     assert g.base_map.zero_deg == 90
     assert g.wrist_rot_map.zero_deg == 90
 

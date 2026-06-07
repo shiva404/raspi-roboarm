@@ -221,7 +221,7 @@ function mergeYaml(base, override) {
 
 const GEOMETRY_SCALAR_KEYS = [
   "units", "shoulder_height", "upper_arm", "forearm", "wrist_rot_offset", "hand",
-  "gripper_offset", "elbow",
+  "gripper_offset", "gripper_motor", "elbow",
 ];
 const GEOMETRY_JOINT_KEYS = ["base", "shoulder", "elbow", "wrist", "wrist_rot"];
 
@@ -308,6 +308,7 @@ function configFromYaml(data) {
       wristRotOffset: Number(g.wrist_rot_offset),
       hand: Number(g.hand),
       gripperOffset: Number(g.gripper_offset),
+      gripperMotor: Number(g.gripper_motor),
       elbowBranch: String(g.elbow),
     },
     maps: {
@@ -431,6 +432,13 @@ let reachCloud = null;
 let reachFloor = null;
 let reachBounds = null;
 let showReach = true;
+let fingerRestZ = 12;
+// Visual scale (1 unit = 1 mm) — match physical hardware
+const VIS = {
+  baseBottomW: 85, baseBottomH: 30,
+  baseTopW: 55, baseTopH: 70,
+  motor: 20,
+};
 
 function sliderBounds(j) {
   return freeSwing ? [SIM_MIN, SIM_MAX] : CONFIG.limits[j];
@@ -728,7 +736,7 @@ function update() {
 
   const gl = CONFIG.limits.gripper;
   const open = 1 - (servo.gripper - gl[0]) / (gl[1] - gl[0]);
-  const sep = 8 + open * 16;
+  const sep = fingerRestZ + open * (fingerRestZ * 1.35);
   fingerL.position.z = sep;
   fingerR.position.z = -sep;
 
@@ -913,41 +921,52 @@ const matAccent = metal(0x4ea1ff, 0.3, 0.5);
 
 function addShadow(mesh) { mesh.castShadow = true; mesh.receiveShadow = true; return mesh; }
 
-// Visual scale (1 unit = 1 mm) — match physical hardware
-const VIS = { baseD: 50, columnD: 25, motor: 20, pedestalH: 20 };
-
-// Boxy link along +X with a 20 mm servo block at the joint pivot.
-function makeLink(length, mat) {
-  const g = new THREE.Group();
+function beamMesh(length, mat) {
   const m = VIS.motor;
   const beamH = m * 0.75;
   const beam = addShadow(new THREE.Mesh(new THREE.BoxGeometry(length, beamH, beamH * 0.7), mat));
   beam.position.x = length / 2;
-  g.add(beam);
-  const servoBlock = addShadow(new THREE.Mesh(new THREE.BoxGeometry(m, m, m * 0.85), matDark));
-  g.add(servoBlock);
+  return beam;
+}
+
+// Link along +X with servo block at the joint pivot.
+function makeLink(length, mat) {
+  const g = new THREE.Group();
+  g.add(beamMesh(length, mat));
+  const m = VIS.motor;
+  g.add(addShadow(new THREE.Mesh(new THREE.BoxGeometry(m, m, m * 0.85), matDark)));
   return g;
+}
+
+function makeBeam(length, mat) {
+  const g = new THREE.Group();
+  g.add(beamMesh(length, mat));
+  return g;
+}
+
+function makeMotorBlock(mat) {
+  const m = VIS.motor;
+  return addShadow(new THREE.Mesh(new THREE.BoxGeometry(m, m, m * 0.85), mat));
 }
 
 baseGroup = new THREE.Group();
 scene.add(baseGroup);
 
-// Base stand 50 mm Ø + column 25 mm Ø up to the shoulder
-const baseR = VIS.baseD / 2;
-const colR = VIS.columnD / 2;
-const pedestal = addShadow(new THREE.Mesh(
-  new THREE.CylinderGeometry(baseR, baseR, VIS.pedestalH, 32), matBase
+// Base boxes: bottom 85×85×30 mm + top 55×55×70 mm = 100 mm to shoulder
+const baseBottom = addShadow(new THREE.Mesh(
+  new THREE.BoxGeometry(VIS.baseBottomW, VIS.baseBottomH, VIS.baseBottomW),
+  matBase
 ));
-pedestal.position.y = VIS.pedestalH / 2;
-baseGroup.add(pedestal);
-const turretH = L.shoulderHeight - VIS.pedestalH;
-const turret = addShadow(new THREE.Mesh(
-  new THREE.CylinderGeometry(colR, colR, turretH, 24), matBase
+baseBottom.position.y = VIS.baseBottomH / 2;
+baseGroup.add(baseBottom);
+const baseTop = addShadow(new THREE.Mesh(
+  new THREE.BoxGeometry(VIS.baseTopW, VIS.baseTopH, VIS.baseTopW),
+  matDark
 ));
-turret.position.y = VIS.pedestalH + turretH / 2;
-baseGroup.add(turret);
+baseTop.position.y = VIS.baseBottomH + VIS.baseTopH / 2;
+baseGroup.add(baseTop);
 const baseHLabel = makeLabel("shoulder " + L.shoulderHeight + " " + UNIT);
-baseHLabel.position.set(52, L.shoulderHeight / 2, 0);
+baseHLabel.position.set(VIS.baseBottomW / 2 + 8, L.shoulderHeight / 2, 0);
 baseGroup.add(baseHLabel);
 
 // Shoulder pivot at top of base column
@@ -986,31 +1005,59 @@ const wristRotLabel = makeLabel("wrist_rot +" + L.wristRotOffset + " " + UNIT);
 wristRotLabel.position.set(0, VIS.motor * 0.5, 0);
 wristRotGroup.add(wristRotLabel);
 
-// hand length in FK = wrist_rot → gripper tip. Beam is proximal; gripper occupies the distal end.
-const GRIP_DEPTH = 32;
-const handBeam = Math.max(30, L.hand - GRIP_DEPTH);
-const handLink = makeLink(handBeam, matLink);
-wristRotGroup.add(handLink);
+// hand: beam to motor, big box at gripper_motor, jaws run motor → tip (robot.yaml).
+const gripAt = Math.max(0, Math.min(L.gripperMotor, L.hand));
+const armLen = Math.max(0, L.hand - gripAt);
+const gOff = L.gripperOffset || 0;
+const handGroup = new THREE.Group();
+if (gripAt > 0) {
+  handGroup.add(makeBeam(gripAt, matLink));
+}
+// Whole gripper (motor + jaws + tip) shares gripper_offset — stays one unit.
+gripperGroup = new THREE.Group();
+gripperGroup.position.set(gripAt, 0, gOff);
+handGroup.add(gripperGroup);
+const motorSize = VIS.motor * 1.8;
+gripperGroup.add(addShadow(new THREE.Mesh(
+  new THREE.BoxGeometry(motorSize, motorSize, motorSize * 0.85), matAccent
+)));
+const gripperMotorLabel = makeLabel("gripper @" + gripAt + " " + UNIT);
+gripperMotorLabel.position.set(0, motorSize * 0.55, 0);
+gripperGroup.add(gripperMotorLabel);
+if (armLen > 0) {
+  fingerRestZ = VIS.motor * 0.55;
+  fingerL = addShadow(new THREE.Mesh(
+    new THREE.BoxGeometry(armLen, VIS.motor * 0.5, VIS.motor * 0.45), matGrip
+  ));
+  fingerR = addShadow(new THREE.Mesh(
+    new THREE.BoxGeometry(armLen, VIS.motor * 0.5, VIS.motor * 0.45), matGrip
+  ));
+  fingerL.position.set(armLen / 2, 0, fingerRestZ);
+  fingerR.position.set(armLen / 2, 0, -fingerRestZ);
+  gripperGroup.add(fingerL, fingerR);
+}
+tipMarker = new THREE.Mesh(new THREE.SphereGeometry(6, 16, 16), matAccent);
+tipMarker.position.set(armLen, 0, 0);
+gripperGroup.add(tipMarker);
+if (gOff !== 0) {
+  const offMat = new THREE.LineDashedMaterial({ color: 0x4ea1ff, dashSize: 4, gapSize: 3 });
+  const offLine = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(gripAt, 0, 0),
+      new THREE.Vector3(gripAt, 0, gOff),
+    ]),
+    offMat
+  );
+  offLine.computeLineDistances();
+  handGroup.add(offLine);
+  const offLabel = makeLabel("offset " + gOff + " " + UNIT);
+  offLabel.position.set(gripAt + 6, 8, gOff / 2);
+  handGroup.add(offLabel);
+}
 const handLabel = makeLabel("hand " + L.hand + " " + UNIT);
 handLabel.position.set(L.hand / 2, VIS.motor * 0.45, 0);
-wristRotGroup.add(handLabel);
-
-// Tip frame at L.hand + lateral offset (+Y kin = +Z Three).
-gripperGroup = new THREE.Group();
-gripperGroup.position.set(L.hand, 0, L.gripperOffset || 0);
-wristRotGroup.add(gripperGroup);
-const palm = addShadow(new THREE.Mesh(new THREE.BoxGeometry(20, 36, 36), matGrip));
-palm.position.x = -22;
-gripperGroup.add(palm);
-fingerL = addShadow(new THREE.Mesh(new THREE.BoxGeometry(18, 10, 12), matGrip));
-fingerR = addShadow(new THREE.Mesh(new THREE.BoxGeometry(18, 10, 12), matGrip));
-fingerL.position.set(-9, 0, 12);
-fingerR.position.set(-9, 0, -12);
-gripperGroup.add(fingerL); gripperGroup.add(fingerR);
-
-tipMarker = new THREE.Mesh(new THREE.SphereGeometry(7, 16, 16), matAccent);
-tipMarker.position.set(0, 0, 0);
-gripperGroup.add(tipMarker);
+handGroup.add(handLabel);
+wristRotGroup.add(handGroup);
 
 initAngleViz();
 
