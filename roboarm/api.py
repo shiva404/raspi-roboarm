@@ -11,7 +11,6 @@ Run from the project root::
 
 from __future__ import annotations
 
-import math
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -23,11 +22,15 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .config import RobotConfig, load_config
-from .kinematics import ArmGeometry, forward_kinematics, solve_ik
+from .kinematics import (
+    ArmGeometry,
+    forward_kinematics,
+    reach_error_mm,
+    solve_ik,
+    suggest_pitch,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
-REACH_GO_TOL_MM = 15.0
-SUGGEST_PITCH_CANDIDATES: tuple[float | None, ...] = (-90.0, -60.0, -45.0, 0.0, None)
 
 _config: RobotConfig | None = None
 _geom: ArmGeometry | None = None
@@ -60,16 +63,6 @@ def _sample_step(lo: float, hi: float, index: int, count: int) -> float:
     return lo + (hi - lo) * index / (count - 1)
 
 
-def _reach_error_mm(target: dict[str, float], servo_angles: dict[str, float]) -> float:
-    geom = _require_geometry()
-    tip = forward_kinematics(geom, servo_angles)
-    return math.hypot(
-        tip["x"] - target["x"],
-        tip["y"] - target["y"],
-        tip["z"] - target["z"],
-    )
-
-
 def _ik_solution_payload(
     sol,
     *,
@@ -93,22 +86,12 @@ def _ik_solution_payload(
         },
     }
     if target_x is not None and target_y is not None and target_z is not None:
-        payload["error_mm"] = _reach_error_mm(
+        payload["error_mm"] = reach_error_mm(
+            geom,
             {"x": target_x, "y": target_y, "z": target_z},
             sol.servo_angles,
         )
     return payload
-
-
-def _suggest_pitch(x: float, y: float, z: float) -> dict[str, Any]:
-    """Return a pitch that reaches (x,y,z); pitch_deg may be null (leave blank)."""
-    geom = _require_geometry()
-    for pitch in SUGGEST_PITCH_CANDIDATES:
-        sol = solve_ik(geom, x, y, z, pitch_deg=pitch)
-        err = _reach_error_mm({"x": x, "y": y, "z": z}, sol.servo_angles)
-        if sol.reachable and err <= REACH_GO_TOL_MM:
-            return {"found": True, "pitch_deg": pitch}
-    return {"found": False, "pitch_deg": None}
 
 
 def sample_reach_points(
@@ -204,7 +187,7 @@ def api_forward_kinematics(req: FKRequest) -> dict[str, Any]:
 
 @app.post("/api/ik/suggest-pitch")
 def api_suggest_pitch(req: ReachTargetRequest) -> dict[str, Any]:
-    return _suggest_pitch(req.x, req.y, req.z)
+    return suggest_pitch(_require_geometry(), req.x, req.y, req.z)
 
 
 @app.get("/api/reach/samples")

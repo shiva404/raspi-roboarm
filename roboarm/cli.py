@@ -36,6 +36,7 @@ from rich.table import Table
 
 from .config import load_config, resolve_calibration_path, save_calibration_override
 from .controller import RobotController
+from .kinematics import suggest_pitch
 from .logging_setup import TRACE, configure_logging, get_logger
 
 console = Console()
@@ -94,7 +95,13 @@ class ReachCommand(click.Command):
                     ctx.fail(f"option {token} requires a value")
                 value = args[i + 1]
                 if token == "--pitch":
-                    pitch = float(value)
+                    if value.lower() == "auto":
+                        pitch = "auto"
+                    else:
+                        try:
+                            pitch = float(value)
+                        except ValueError:
+                            ctx.fail(f"--pitch must be a number or 'auto', got {value!r}")
                 elif token == "--elbow":
                     elbow = value
                 elif token == "--speed":
@@ -429,7 +436,11 @@ def flow(ctx: Ctx, names: tuple[str, ...], speed, duration, dwell: float, glide:
 @click.argument("x", type=float)
 @click.argument("y", type=float)
 @click.argument("z", type=float)
-@click.option("--pitch", type=float, default=None, help="Hand pitch deg (0=level, -90=down).")
+@click.option(
+    "--pitch",
+    default=None,
+    help="Hand pitch deg (0=level, -90=down), or 'auto' to pick like the 3D sim.",
+)
 @click.option("--elbow", type=click.Choice(["up", "down"]), default=None, help="Elbow branch.")
 @click.option("--speed", type=float, default=None, help="deg/sec.")
 @click.option("--duration", type=float, default=None, help="seconds for the move.")
@@ -444,9 +455,23 @@ def reach(ctx: Ctx, x, y, z, pitch, elbow, speed, duration, dry_run):
 
     Example: `roboarm reach 150 0 120 --pitch -90` reaches forward and points down.
     Example: `roboarm reach 142 -25 88 --pitch -30` reaches right of centre.
+    Example: `roboarm reach 128 62 129 --pitch auto` picks pitch like the 3D sim.
     """
     c = ctx.controller()
     try:
+        if pitch == "auto":
+            sugg = suggest_pitch(c._require_geometry(), x, y, z)
+            if not sugg["found"]:
+                console.print(
+                    "[red]auto pitch: no angle reaches this tip — "
+                    "try explicit --pitch or omit --pitch for wrist target[/]"
+                )
+                return
+            pitch = sugg["pitch_deg"]
+            if pitch is None:
+                console.print("[dim]auto pitch: wrist-only (no pitch constraint)[/]")
+            else:
+                console.print(f"[dim]auto pitch: {pitch:g}°[/]")
         if dry_run:
             sol = c.solve_reach(x, y, z, pitch_deg=pitch, elbow=elbow)
         else:

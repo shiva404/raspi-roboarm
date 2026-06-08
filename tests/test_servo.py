@@ -669,3 +669,18 @@ def test_reach_cli_accepts_negative_coordinates():
     )
     assert result.exit_code == 0, result.output
     assert "reach (142, -25, 88)" in result.output
+
+
+def test_reach_cli_accepts_pitch_auto():
+    from click.testing import CliRunner
+
+    from roboarm.cli import cli
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["--mock", "reach", "128", "62", "129", "--pitch", "auto", "--dry-run"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "auto pitch:" in result.output
+    assert "reach (128, 62, 129)" in result.output

@@ -55,7 +55,7 @@ roboarm reach <x> <y> <z> [--pitch DEG] [--elbow up|down] [--dry-run] [--speed N
 | `x` | Forward from the base (mm) | `150` = 150 mm in front |
 | `y` | Left from centre (mm) | `60` = 60 mm to the left; `0` = centred |
 | `z` | Height above the table (mm) | `150` = 150 mm up |
-| `--pitch` | How the gripper points (optional) | `0` = level, `-90` = straight down |
+| `--pitch` | How the gripper points (optional) | `0` = level, `-90` = straight down, `auto` = pick like 3D sim |
 | `--elbow` | Force elbow-up or elbow-down (optional) | Usually omit — IK picks the branch that fits |
 | `--dry-run` | Show angles only, don't move | Always use for a new target first |
 | `--speed` | Move speed in deg/sec | Start at `40` on the real arm |

@@ -407,3 +407,44 @@ def forward_kinematics(geom: ArmGeometry, servo_angles: dict[str, float]) -> dic
         "reach_mm": tip_r,
         "kin_angles": kin,
     }
+
+
+REACH_GO_TOL_MM = 15.0
+SUGGEST_PITCH_CANDIDATES: tuple[float | None, ...] = (-90.0, -60.0, -45.0, 0.0, None)
+
+
+def reach_error_mm(
+    geom: ArmGeometry,
+    target: dict[str, float],
+    servo_angles: dict[str, float],
+) -> float:
+    """FK tip distance from target (mm, same frame as ``solve_ik``)."""
+    tip = forward_kinematics(geom, servo_angles)
+    return math.hypot(
+        tip["x"] - target["x"],
+        tip["y"] - target["y"],
+        tip["z"] - target["z"],
+    )
+
+
+def suggest_pitch(
+    geom: ArmGeometry,
+    x: float,
+    y: float,
+    z: float,
+    *,
+    tol_mm: float = REACH_GO_TOL_MM,
+) -> dict[str, float | bool | None]:
+    """Pick a hand pitch that reaches gripper tip (x, y, z).
+
+    Returns ``{"found": bool, "pitch_deg": float | None}``. ``pitch_deg`` may be
+    ``None`` when wrist-only IK (no pitch constraint) is the best match — same
+    candidates as the 3D sim auto-pitch picker.
+    """
+    target = {"x": x, "y": y, "z": z}
+    for pitch in SUGGEST_PITCH_CANDIDATES:
+        sol = solve_ik(geom, x, y, z, pitch_deg=pitch)
+        err = reach_error_mm(geom, target, sol.servo_angles)
+        if sol.reachable and err <= tol_mm:
+            return {"found": True, "pitch_deg": pitch}
+    return {"found": False, "pitch_deg": None}
