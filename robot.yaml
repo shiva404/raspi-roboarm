@@ -57,7 +57,7 @@ joints:
   - name: gripper
     channel: 10
     enabled: true
-    min: 60
+    min: 82
     max: 110
 
 # Named poses — reach them with `roboarm pose <name>` or `roboarm home` (uses home).
