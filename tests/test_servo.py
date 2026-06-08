@@ -655,3 +655,17 @@ def test_close_holds_by_default():
     c.set_angle("base", 90)
     c.close()
     assert c.servo("base").attached
+
+
+def test_reach_cli_accepts_negative_coordinates():
+    from click.testing import CliRunner
+
+    from roboarm.cli import cli
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["--mock", "reach", "142", "-25", "88", "--pitch", "-30", "--dry-run"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "reach (142, -25, 88)" in result.output

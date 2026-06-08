@@ -247,12 +247,13 @@ wrong way.
 ### Tune visually with the 3D simulator
 
 ```bash
-python3 -m http.server 8753
+poetry run roboarm-sim
 # open http://localhost:8753/sim/arm3d.html
 ```
 
-The simulator uses the same kinematics as `reach`/`fk`. Edit `robot.yaml`, reload
-(↻), and compare the on-screen arm to your real one.
+The simulator calls the same Python kinematics as `reach`/`fk` over a thin
+FastAPI layer (`roboarm/api.py`) — no duplicated IK in JavaScript. Edit
+`robot.yaml`, reload (↻), and compare the on-screen arm to your real one.
 
 ---
 

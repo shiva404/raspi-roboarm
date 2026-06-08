@@ -72,8 +72,41 @@
   .readout .dims span { color: var(--accent); font-weight: 600; }
   .readout .note { margin-top: 9px; font-size: 10px; color: var(--text-dim); }
   .readout .note b { color: var(--warn); }
+  .reach-filter { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--panel-line); }
+  .reach-filter .row { display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 10px; color: var(--text-dim); margin-bottom: 5px; }
+  .reach-filter .row b { color: var(--accent); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .reach-filter .count { font-size: 9px; color: var(--text-dim); margin-top: 4px; }
+  .reach-go { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--panel-line); }
+  .reach-go .row { display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 10px; color: var(--text-dim); margin-bottom: 5px; }
+  .reach-go-row { display: flex; gap: 6px; align-items: center; }
+  .reach-go-row input[type=text] { flex: 1; min-width: 0; font: inherit; font-size: 12px;
+    font-variant-numeric: tabular-nums; background: #1a212c; color: var(--text);
+    border: 1px solid var(--panel-line); border-radius: 6px; padding: 5px 8px; }
+  .reach-go-row input[type=number] { width: 52px; font: inherit; font-size: 11px;
+    font-variant-numeric: tabular-nums; background: #1a212c; color: var(--text);
+    border: 1px solid var(--panel-line); border-radius: 6px; padding: 5px 6px; }
+  .reach-go-row button { font: inherit; font-size: 11px; padding: 5px 10px; border-radius: 6px;
+    border: 1px solid var(--accent-dim); background: rgba(78,161,255,0.15); color: var(--accent);
+    cursor: pointer; white-space: nowrap; }
+  .reach-go-row button:hover { border-color: var(--accent); color: #fff; }
+  .reach-go .status { font-size: 9px; margin-top: 5px; line-height: 1.35; }
+  .reach-go .status.ok { color: #5de88a; }
+  .reach-go .status.warn { color: var(--warn); }
+  .reach-go .status.err { color: #e85d5d; }
   .hint { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); font-size: 11px;
     color: var(--text-dim); pointer-events: none; }
+  .reach-tooltip { position: fixed; z-index: 30; padding: 6px 10px;
+    background: rgba(17,22,31,0.96); border: 1px solid var(--accent); border-radius: 6px;
+    font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text);
+    pointer-events: none; white-space: nowrap; transform: translate(14px, -50%);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.35); display: none; }
+  .reach-tooltip.visible { display: block; }
+  .reach-tooltip.copied { border-color: #5de88a; }
+  .reach-tooltip .xyz { color: var(--accent); font-weight: 600; }
+  .reach-tooltip .action { font-size: 9px; color: var(--text-dim); margin-left: 8px; }
+  canvas.reach-hover { cursor: crosshair; }
   .source { position: fixed; top: 42px; right: 22px; font-size: 10px; color: var(--text-dim);
     pointer-events: none; text-align: right; max-width: 280px; }
   .source.ok { color: #5de88a; }
@@ -170,10 +203,27 @@
     <div class="cell"><div class="v"><span id="rp">0</span><span class="u">°</span></div><div class="l">pitch</div></div>
   </div>
   <div class="dims" id="reachLine">reach from base: <span id="reach">0</span> mm</div>
-  <div class="note">Same pipeline as Pi: <b>servo°</b> → clamp (<code>min/max</code>) → pulse (<code>robot.calibration.yaml</code>) → link rotation (<code>geometry.joints</code>). Sliders = commanded servo°. Orange arcs = kinematic bend driving the mesh. Blue/green cloud = reachable tip positions from <code>joints.min/max</code> (toggle ⊙).</div>
+  <div class="reach-filter" id="reachFilter">
+    <div class="row"><span>Reach Z slice</span><b><span id="reachZVal">0</span> mm</b></div>
+    <input type="range" id="reachZSlider" min="0" max="300" value="0" step="5" />
+    <div class="count" id="reachZCount">—</div>
+  </div>
+  <div class="reach-go">
+    <div class="row"><span>Go to point</span><span>pitch °</span></div>
+    <div class="reach-go-row">
+      <input type="text" id="reachGoInput" placeholder="x y z  e.g. 150 0 120" spellcheck="false"
+             autocomplete="off" title="Three numbers separated by spaces (mm)" />
+      <input type="number" id="reachGoPitch" value="" step="5" placeholder="-30"
+             title="Hand pitch (0=level, -90=down). Leave blank for wrist-only IK." />
+      <button type="button" id="reachGoBtn">Go</button>
+    </div>
+    <div class="status" id="reachGoStatus">enter x y z · pitch auto-picked if blank (-90 typical for table height)</div>
+  </div>
+  <div class="note">IK &amp; reach cloud via <code>roboarm/api.py</code> (same code as <code>roboarm reach</code>). Sliders use local FK for live readout. <b>hover</b> reach cloud for x,y,z · <b>click</b> to copy · <b>Go</b> calls Python IK.</div>
 </div>
 
-<div class="hint">drag to orbit · scroll to zoom · right-drag to pan</div>
+<div class="hint" id="viewHint">drag to orbit · scroll to zoom · right-drag to pan</div>
+<div id="reachTooltip" class="reach-tooltip" aria-hidden="true"></div>
 
 <script type="importmap">
 {
@@ -412,11 +462,195 @@ function kinToThree(x, y, z) {
   return new THREE.Vector3(x, z, y);
 }
 
+function formatReachCoords(pt) {
+  const x = Math.round(pt.x);
+  const y = Math.round(pt.y);
+  const z = Math.round(pt.z);
+  return {
+    display: x + ", " + y + ", " + z,
+    copy: x + " " + y + " " + z,
+  };
+}
+
+const clampNum = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+// Kinematics API — same code as roboarm reach / fk (roboarm/api.py).
+const API_BASE = "";
+let apiReady = false;
+
+async function apiFetch(path, options = {}) {
+  const res = await fetch(API_BASE + path, options);
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.json();
+      detail = body.detail || detail;
+    } catch (_) { /* ignore */ }
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+async function checkKinematicsApi() {
+  try {
+    await apiFetch("/api/health");
+    apiReady = true;
+    return true;
+  } catch (_) {
+    apiReady = false;
+    return false;
+  }
+}
+
+async function apiSolveIk(x, y, z, pitchDeg = null, elbow = null) {
+  const body = { x, y, z };
+  if (pitchDeg != null) body.pitch_deg = pitchDeg;
+  if (elbow != null) body.elbow = elbow;
+  const sol = await apiFetch("/api/ik", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return {
+    reachable: sol.reachable,
+    servoAngles: sol.servo_angles,
+    kinAngles: sol.kin_angles,
+    warnings: sol.warnings || [],
+    elbow: sol.elbow,
+    tip: sol.tip,
+    errorMm: sol.error_mm,
+  };
+}
+
+async function apiSuggestPitch(x, y, z) {
+  return apiFetch("/api/ik/suggest-pitch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ x, y, z }),
+  });
+}
+
+function parseXyzInput(text) {
+  const parts = text.trim().split(/\s+/).filter(Boolean);
+  if (parts.length !== 3) return null;
+  const nums = parts.map(Number);
+  if (nums.some((n) => !Number.isFinite(n))) return null;
+  return { x: nums[0], y: nums[1], z: nums[2] };
+}
+
+function setReachGoStatus(msg, kind = "") {
+  const el = document.getElementById("reachGoStatus");
+  if (!el) return;
+  el.textContent = msg;
+  el.className = "status" + (kind ? " " + kind : "");
+}
+
+let reachAnimFrame = null;
+const REACH_GO_TOL_MM = 15;
+
+function animateToServos(targetAngles, durationMs = 500) {
+  if (reachAnimFrame) cancelAnimationFrame(reachAnimFrame);
+  const start = { ...servo };
+  const keys = Object.keys(targetAngles);
+  const t0 = performance.now();
+  function step(now) {
+    const t = Math.min(1, (now - t0) / durationMs);
+    for (const j of keys) {
+      if (targetAngles[j] == null) continue;
+      const v = start[j] + (targetAngles[j] - start[j]) * t;
+      const clamped = setServoAngle(j, v);
+      const s = document.getElementById("s_" + j);
+      if (s) s.value = clamped;
+      if (valEls[j]) valEls[j].textContent = Math.round(clamped);
+      refreshJointUI(j);
+    }
+    setActivePose(null);
+    update();
+    if (t < 1) reachAnimFrame = requestAnimationFrame(step);
+    else reachAnimFrame = null;
+  }
+  reachAnimFrame = requestAnimationFrame(step);
+}
+
+async function goToReachCoords() {
+  if (!apiReady) {
+    setReachGoStatus("start API: poetry run roboarm-sim", "err");
+    return;
+  }
+  try {
+    const input = document.getElementById("reachGoInput");
+    const parsed = parseXyzInput(input?.value ?? "");
+    if (!parsed) {
+      setReachGoStatus("enter three numbers: x y z", "err");
+      return;
+    }
+    const pitchEl = document.getElementById("reachGoPitch");
+    const pitchRaw = pitchEl?.value;
+    let pitch = pitchRaw === "" || pitchRaw == null ? null : Number(pitchRaw);
+    let autoPitch = false;
+
+    // Blank pitch = wrist-only IK, which targets the wrist — not the gripper tip.
+    // Reach cloud points are tip coords, so auto-pick a pitch that reaches the tip.
+    if (pitch == null) {
+      const sugg = await apiSuggestPitch(parsed.x, parsed.y, parsed.z);
+      if (sugg.found) {
+        pitch = sugg.pitch_deg;
+        autoPitch = true;
+        if (pitchEl && pitch != null) pitchEl.value = String(pitch);
+      }
+    }
+
+    const sol = await apiSolveIk(parsed.x, parsed.y, parsed.z, pitch);
+    const tip = sol.tip;
+    const err = sol.errorMm ?? REACH_GO_TOL_MM + 1;
+
+    if (!sol.reachable || err > REACH_GO_TOL_MM) {
+      const sugg = await apiSuggestPitch(parsed.x, parsed.y, parsed.z);
+      let msg = `cannot reach (${parsed.x}, ${parsed.y}, ${parsed.z})`;
+      if (pitch != null) msg += ` with pitch ${pitch}°`;
+      msg += ` — FK would land (${Math.round(tip.x)}, ${Math.round(tip.y)}, ${Math.round(tip.z)}) mm, ${err.toFixed(0)} mm away`;
+      if (sugg.found) {
+        msg += sugg.pitch_deg === null ? ". Try clearing pitch" : `. Try pitch ${sugg.pitch_deg}°`;
+      } else {
+        msg += ". Pick a closer point from the reach cloud";
+      }
+      if (sol.warnings.length) msg += " · " + sol.warnings[0];
+      setReachGoStatus(msg, "err");
+      return;
+    }
+
+    let status = `moving to (${parsed.x}, ${parsed.y}, ${parsed.z}) mm`;
+    if (autoPitch && pitch != null) status += ` · pitch ${pitch}° (auto)`;
+    setReachGoStatus(status, "ok");
+    animateToServos(sol.servoAngles);
+    if (sol.warnings.length) {
+      setReachGoStatus(sol.warnings.join(" · "), "warn");
+    }
+  } catch (err) {
+    console.error("reach Go failed:", err);
+    setReachGoStatus(String(err.message || err), "err");
+  }
+}
+
+function fillReachGoInput(text) {
+  const input = document.getElementById("reachGoInput");
+  if (input) input.value = text;
+}
+
+function initReachGo() {
+  const btn = document.getElementById("reachGoBtn");
+  const input = document.getElementById("reachGoInput");
+  btn?.addEventListener("click", goToReachCoords);
+  input?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") goToReachCoords();
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Bootstrap — load yaml, then build scene
 // ---------------------------------------------------------------------------
 let scene, camera, controls, renderer, labelRenderer, grid;
-let baseGroup, shoulderGroup, elbowGroup, wristGroup, wristRotGroup, gripperGroup;
+let baseGroup, armRotateGroup, shoulderGroup, elbowGroup, wristGroup, wristRotGroup, gripperGroup;
 let fingerL, fingerR, tipMarker, tipCoordLabel, dimX, dimY, dimZ;
 let valEls = {};
 let homeCam;
@@ -432,6 +666,17 @@ let reachCloud = null;
 let reachFloor = null;
 let reachBounds = null;
 let showReach = true;
+let reachKinCoords = [];
+let reachAllSamples = [];
+let reachFilterZ = 0;
+let reachZTolerance = 10;
+const reachRaycaster = new THREE.Raycaster();
+reachRaycaster.params.Points.threshold = 18;
+const reachMouse = new THREE.Vector2();
+let reachPointerDown = { x: 0, y: 0 };
+let reachHoverPt = null;
+let reachCopiedTimer = null;
+let reachLastPointer = { x: 0, y: 0 };
 let fingerRestZ = 12;
 // Visual scale (1 unit = 1 mm) — match physical hardware
 const VIS = {
@@ -483,14 +728,17 @@ async function bootstrap() {
   try {
     CONFIG = await loadRobotConfig();
     const hasCal = await fetch(CAL_PATH).then((r) => r.ok).catch(() => false);
-    src.textContent = hasCal
+    const apiOk = await checkKinematicsApi();
+    let msg = hasCal
       ? "config: robot.yaml + calibration (pulse µs → same as Pi)"
       : "config: robot.yaml only — add robot.calibration.yaml for pulse parity";
-    src.className = "source ok";
+    msg += apiOk ? " · IK via roboarm API" : " · API offline — run: poetry run roboarm-sim";
+    src.textContent = msg;
+    src.className = apiOk ? "source ok" : "source err";
   } catch (err) {
     src.textContent = String(err.message || err);
     src.className = "source err";
-    document.getElementById("loading").textContent = "Failed to load robot.yaml — serve from project root.";
+    document.getElementById("loading").textContent = "Failed to load robot.yaml — run poetry run roboarm-sim from project root.";
     return;
   }
   document.getElementById("loading").style.display = "none";
@@ -503,7 +751,13 @@ async function bootstrap() {
   JOINTS.forEach((j) => setServoAngle(j, servo[j] ?? CONFIG.homeAngles[j] ?? 90));
 
   buildScene();
-  buildReachability();
+  try {
+    await buildReachability();
+  } catch (err) {
+    console.warn("reach cloud:", err);
+    const countEl = document.getElementById("reachZCount");
+    if (countEl) countEl.textContent = "reach cloud failed — is roboarm-sim running?";
+  }
   buildUI();
   buildCalLab();
   update();
@@ -542,7 +796,7 @@ function mkAngleLine(color, dashed = false) {
 
 function initAngleViz() {
   angleGroup = new THREE.Group();
-  baseGroup.add(angleGroup);
+  armRotateGroup.add(angleGroup);
   angleLines = {
     shoulder: { ref: mkAngleLine(0x6a7a8a, true), arm: mkAngleLine(0x4ea1ff), arc: mkAngleLine(0xf0a040) },
     elbow: { ref: mkAngleLine(0x6a7a8a, true), arm: mkAngleLine(0x4ea1ff), arc: mkAngleLine(0xf0a040) },
@@ -552,7 +806,7 @@ function initAngleViz() {
   for (const j of ["shoulder", "elbow", "wrist"]) {
     for (const k of ["ref", "arm", "arc"]) angleGroup.add(angleLines[j][k]);
     angleLabels[j] = makeLabel("", "angle-label");
-    baseGroup.add(angleLabels[j]);
+    armRotateGroup.add(angleLabels[j]);
   }
 }
 
@@ -566,7 +820,7 @@ function updateAngleViz(q1, q2, q3, M) {
   const LEN = 50;
   const ARC = 38;
   const z = 3;
-  const sh = new THREE.Vector3(0, L.shoulderHeight, z);
+  const sh = new THREE.Vector3(0, 0, z); // shoulder pivot — local to armRotateGroup
 
   // Shoulder: kinematic angle = upper arm above horizontal (+X)
   setLine(angleLines.shoulder.ref, [sh, new THREE.Vector3(sh.x + LEN, sh.y, z)]);
@@ -632,10 +886,6 @@ function updateAngleViz(q1, q2, q3, M) {
   );
 }
 
-function sampleStep(lo, hi, i, n) {
-  return n <= 1 ? (lo + hi) / 2 : lo + ((hi - lo) * i) / (n - 1);
-}
-
 function disposeReachability() {
   for (const obj of [reachCloud, reachFloor, reachBounds]) {
     if (!obj) continue;
@@ -644,33 +894,94 @@ function disposeReachability() {
     obj.material?.dispose();
   }
   reachCloud = reachFloor = reachBounds = null;
+  reachKinCoords = [];
+  reachAllSamples = [];
+  hideReachTooltip();
 }
 
-function buildReachability() {
-  disposeReachability();
-  const lim = CONFIG.limits;
-  const steps = { base: 16, shoulder: 12, elbow: 12, wrist: 8 };
+function configureReachZSlider() {
+  const slider = document.getElementById("reachZSlider");
+  const valEl = document.getElementById("reachZVal");
+  if (!slider || !reachAllSamples.length) return;
+  const zs = reachAllSamples.map((s) => s.z);
+  const zMin = Math.min(...zs);
+  const zMax = Math.max(...zs);
+  reachZTolerance = Math.max(8, (zMax - zMin) / 24);
+  slider.min = String(Math.floor(zMin / 5) * 5);
+  slider.max = String(Math.ceil(zMax / 5) * 5);
+  slider.step = "5";
+  if (reachFilterZ < Number(slider.min)) reachFilterZ = Number(slider.min);
+  if (reachFilterZ > Number(slider.max)) reachFilterZ = Number(slider.max);
+  slider.value = String(reachFilterZ);
+  if (valEl) valEl.textContent = reachFilterZ;
+}
+
+function applyReachZFilter() {
+  if (!reachCloud || !reachFloor) return;
+  const filtered = reachAllSamples.filter(
+    (s) => Math.abs(s.z - reachFilterZ) <= reachZTolerance
+  );
+  reachKinCoords = filtered.map((s) => ({ x: s.x, y: s.y, z: s.z }));
+  reachCloud.userData.kinCoords = reachKinCoords;
+  reachFloor.userData.kinCoords = reachKinCoords;
+
   const vol = [];
   const floor = [];
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const s of filtered) {
+    const p = kinToThree(s.x, s.y, s.z);
+    vol.push(p.x, p.y, p.z);
+    floor.push(s.x, 0.8, s.y);
+    minX = Math.min(minX, s.x); maxX = Math.max(maxX, s.x);
+    minY = Math.min(minY, s.y); maxY = Math.max(maxY, s.y);
+  }
+
+  reachCloud.geometry.setAttribute("position", new THREE.Float32BufferAttribute(vol, 3));
+  reachCloud.geometry.computeBoundingSphere();
+  reachFloor.geometry.setAttribute("position", new THREE.Float32BufferAttribute(floor, 3));
+  reachFloor.geometry.computeBoundingSphere();
+
+  if (reachBounds) {
+    reachBounds.visible = showReach && filtered.length > 0;
+    if (filtered.length > 0) {
+      const pad = 8;
+      const w = maxX - minX + pad * 2;
+      const d = maxY - minY + pad * 2;
+      reachBounds.geometry.dispose();
+      reachBounds.geometry = new THREE.EdgesGeometry(new THREE.PlaneGeometry(w, d));
+      reachBounds.position.set((minX + maxX) / 2, 0.4, (minY + maxY) / 2);
+    }
+  }
+
+  const countEl = document.getElementById("reachZCount");
+  if (countEl) {
+    countEl.textContent = filtered.length
+      ? filtered.length + " points at z ≈ " + reachFilterZ + " mm (±" + Math.round(reachZTolerance) + ")"
+      : "no points at z ≈ " + reachFilterZ + " mm — try another slice";
+  }
+  hideReachTooltip();
+}
+
+async function buildReachability() {
+  disposeReachability();
+  if (!apiReady) {
+    const countEl = document.getElementById("reachZCount");
+    if (countEl) countEl.textContent = "reach cloud needs API — poetry run roboarm-sim";
+    return;
+  }
+  const data = await apiFetch("/api/reach/samples");
+  const vol = [];
+  const floor = [];
+  reachAllSamples = [];
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
 
-  for (let ib = 0; ib < steps.base; ib++) {
-    const base = sampleStep(lim.base[0], lim.base[1], ib, steps.base);
-    for (let is = 0; is < steps.shoulder; is++) {
-      const shoulder = sampleStep(lim.shoulder[0], lim.shoulder[1], is, steps.shoulder);
-      for (let ie = 0; ie < steps.elbow; ie++) {
-        const elbow = sampleStep(lim.elbow[0], lim.elbow[1], ie, steps.elbow);
-        for (let iw = 0; iw < steps.wrist; iw++) {
-          const wrist = sampleStep(lim.wrist[0], lim.wrist[1], iw, steps.wrist);
-          const tip = fkFromServo({ base, shoulder, elbow, wrist });
-          const p = kinToThree(tip.x, tip.y, tip.z);
-          vol.push(p.x, p.y, p.z);
-          floor.push(tip.x, 0.8, tip.y);
-          minX = Math.min(minX, tip.x); maxX = Math.max(maxX, tip.x);
-          minZ = Math.min(minZ, tip.y); maxZ = Math.max(maxZ, tip.y);
-        }
-      }
-    }
+  for (const tip of data.points) {
+    reachAllSamples.push({ x: tip.x, y: tip.y, z: tip.z });
+    const p = kinToThree(tip.x, tip.y, tip.z);
+    vol.push(p.x, p.y, p.z);
+    floor.push(tip.x, 0.8, tip.y);
+    minX = Math.min(minX, tip.x); maxX = Math.max(maxX, tip.x);
+    minZ = Math.min(minZ, tip.y); maxZ = Math.max(maxZ, tip.y);
   }
 
   const volGeom = new THREE.BufferGeometry();
@@ -718,6 +1029,108 @@ function buildReachability() {
     reachBounds.renderOrder = 0;
     scene.add(reachBounds);
   }
+  configureReachZSlider();
+  applyReachZFilter();
+}
+
+function pickReachPoint(clientX, clientY) {
+  if (!showReach || !reachKinCoords.length || !renderer || !camera) return null;
+  const rect = renderer.domElement.getBoundingClientRect();
+  reachMouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  reachMouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+  reachRaycaster.setFromCamera(reachMouse, camera);
+  const targets = [reachCloud, reachFloor].filter(Boolean);
+  const hits = reachRaycaster.intersectObjects(targets, false);
+  if (!hits.length || hits[0].index == null) return null;
+  return reachKinCoords[hits[0].index] ?? null;
+}
+
+function hideReachTooltip() {
+  reachHoverPt = null;
+  const tip = document.getElementById("reachTooltip");
+  if (tip) {
+    tip.classList.remove("visible", "copied");
+    tip.setAttribute("aria-hidden", "true");
+  }
+  renderer?.domElement.classList.remove("reach-hover");
+}
+
+function showReachTooltip(clientX, clientY, pt, copied = false) {
+  const tip = document.getElementById("reachTooltip");
+  if (!tip || !pt) return;
+  const fmt = formatReachCoords(pt);
+  tip.innerHTML = copied
+    ? '<span class="xyz">Copied</span> <span class="action">' + fmt.copy + '</span>'
+    : '<span class="xyz">' + fmt.display + '</span> <span class="action">mm · click to copy</span>';
+  tip.style.left = clientX + "px";
+  tip.style.top = clientY + "px";
+  tip.classList.add("visible");
+  tip.classList.toggle("copied", copied);
+  tip.setAttribute("aria-hidden", "false");
+}
+
+function updateReachViewHint() {
+  const el = document.getElementById("viewHint");
+  if (!el) return;
+  el.textContent = showReach
+    ? "drag orbit · hover reach cloud · click to copy x y z · or type coords below and Go"
+    : "drag to orbit · scroll to zoom · type x y z below and Go";
+}
+
+function initReachPicker() {
+  const canvas = renderer.domElement;
+  canvas.addEventListener("pointerdown", (e) => {
+    reachPointerDown = { x: e.clientX, y: e.clientY };
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    reachLastPointer = { x: e.clientX, y: e.clientY };
+    if (!showReach) {
+      hideReachTooltip();
+      return;
+    }
+    const pt = pickReachPoint(e.clientX, e.clientY);
+    if (!pt) {
+      hideReachTooltip();
+      return;
+    }
+    reachHoverPt = pt;
+    showReachTooltip(e.clientX, e.clientY, pt);
+    canvas.classList.add("reach-hover");
+  });
+  canvas.addEventListener("pointerleave", hideReachTooltip);
+  canvas.addEventListener("click", (e) => {
+    const dx = e.clientX - reachPointerDown.x;
+    const dy = e.clientY - reachPointerDown.y;
+    if (dx * dx + dy * dy > 36) return;
+    const pt = pickReachPoint(e.clientX, e.clientY);
+    if (!pt) return;
+    const text = formatReachCoords(pt).copy;
+    const copied = () => {
+      showReachTooltip(e.clientX, e.clientY, pt, true);
+      clearTimeout(reachCopiedTimer);
+      reachCopiedTimer = setTimeout(() => {
+        if (reachHoverPt) showReachTooltip(reachLastPointer.x, reachLastPointer.y, reachHoverPt);
+        else hideReachTooltip();
+      }, 1200);
+    };
+    fillReachGoInput(text);
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(copied).catch(() => {});
+    } else {
+      copied();
+    }
+  });
+  updateReachViewHint();
+  initReachGo();
+  const reachZSlider = document.getElementById("reachZSlider");
+  if (reachZSlider) {
+    reachZSlider.addEventListener("input", () => {
+      reachFilterZ = Number(reachZSlider.value);
+      const valEl = document.getElementById("reachZVal");
+      if (valEl) valEl.textContent = reachFilterZ;
+      applyReachZFilter();
+    });
+  }
 }
 
 function update() {
@@ -728,7 +1141,7 @@ function update() {
   const q3 = rad(toKin(servo.wrist, M.wrist));
   const roll = rad(toKin(servo.wrist_rot, M.wrist_rot));
 
-  baseGroup.rotation.y = -az;
+  armRotateGroup.rotation.y = -az;
   shoulderGroup.rotation.z = q1;
   elbowGroup.rotation.z = q2;
   wristGroup.rotation.z = q3;
@@ -969,10 +1382,14 @@ const baseHLabel = makeLabel("shoulder " + L.shoulderHeight + " " + UNIT);
 baseHLabel.position.set(VIS.baseBottomW / 2 + 8, L.shoulderHeight / 2, 0);
 baseGroup.add(baseHLabel);
 
+// Turntable: only the arm rotates with the base joint; the pedestal stays fixed.
+armRotateGroup = new THREE.Group();
+armRotateGroup.position.y = L.shoulderHeight;
+baseGroup.add(armRotateGroup);
+
 // Shoulder pivot at top of base column
 shoulderGroup = new THREE.Group();
-shoulderGroup.position.y = L.shoulderHeight;
-baseGroup.add(shoulderGroup);
+armRotateGroup.add(shoulderGroup);
 shoulderGroup.add(makeLink(L.upperArm, matLink));
 const upperArmLabel = makeLabel("upper arm " + L.upperArm + " " + UNIT);
 upperArmLabel.position.set(L.upperArm / 2, VIS.motor * 0.6, 0);
@@ -1089,9 +1506,15 @@ initAngleViz();
     showReach = !showReach;
     if (reachCloud) reachCloud.visible = showReach;
     if (reachFloor) reachFloor.visible = showReach;
-    if (reachBounds) reachBounds.visible = showReach;
     document.getElementById("toggleReach").classList.toggle("reach-on", showReach);
+    if (showReach) applyReachZFilter();
+    else {
+      if (reachBounds) reachBounds.visible = false;
+      hideReachTooltip();
+    }
+    updateReachViewHint();
   });
+  initReachPicker();
   window.addEventListener("resize", onResize);
 }
 
@@ -1261,6 +1684,28 @@ function buildCalLab() {
 // ---------------------------------------------------------------------------
 // UI: sliders + pose buttons
 // ---------------------------------------------------------------------------
+function setActivePose(name) {
+  activePose = name;
+  document.querySelectorAll("#poses button").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.pose === name);
+  });
+}
+
+function applyPose(name) {
+  const p = CONFIG.poses[name];
+  if (!p) return;
+  JOINTS.forEach((j) => {
+    if (p[j] == null) return;
+    const clamped = setServoAngle(j, p[j]);
+    const s = document.getElementById("s_" + j);
+    if (s) s.value = clamped;
+    if (valEls[j]) valEls[j].textContent = clamped;
+    refreshJointUI(j);
+  });
+  setActivePose(name);
+  update();
+}
+
 function buildUI() {
 const slidersEl = document.getElementById("sliders");
 slidersEl.innerHTML = "";
@@ -1293,28 +1738,6 @@ JOINTS.forEach((j) => {
   });
   refreshJointUI(j);
 });
-
-function setActivePose(name) {
-  activePose = name;
-  document.querySelectorAll("#poses button").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.pose === name);
-  });
-}
-
-function applyPose(name) {
-  const p = CONFIG.poses[name];
-  if (!p) return;
-  JOINTS.forEach((j) => {
-    if (p[j] == null) return;
-    const clamped = setServoAngle(j, p[j]);
-    const s = document.getElementById("s_" + j);
-    if (s) s.value = clamped;
-    if (valEls[j]) valEls[j].textContent = clamped;
-    refreshJointUI(j);
-  });
-  setActivePose(name);
-  update();
-}
 
 const posesEl = document.getElementById("poses");
 Object.keys(CONFIG.poses).forEach((name) => {

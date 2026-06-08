@@ -11,6 +11,8 @@ python = "^3.9"
 click = "^8.1.7"
 rich = "^13.7.1"
 pyyaml = "^6.0.2"
+fastapi = "^0.115.0"
+uvicorn = {version = "^0.32.0", extras = ["standard"]}
 
 # Hardware stack: auto-installed on Linux (Raspberry Pi). Skipped on macOS/Windows
 # so the project still runs in MOCK mode on a laptop without `-E hardware`.
@@ -25,9 +27,11 @@ rpi-lgpio = { version = "^0.6", markers = "sys_platform == 'linux'" }
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
+httpx = "^0.28.0"
 
 [tool.poetry.scripts]
 roboarm = "roboarm.cli:cli"
+roboarm-sim = "roboarm.api:main"
 
 [build-system]
 requires = ["poetry-core>=1.9.0"]

@@ -67,6 +67,63 @@ class Ctx:
 
 pass_ctx = click.make_pass_decorator(Ctx)
 
+class ReachCommand(click.Command):
+    """Parse reach args manually so negative X/Y/Z are not treated as flags.
+
+    Click interprets ``-25`` as short option ``-2`` — manual parsing avoids that.
+    """
+
+    _OPTS_WITH_VALUE = frozenset({"--pitch", "--elbow", "--speed", "--duration"})
+
+    def parse_args(self, ctx, args):
+        if "-h" in args or "--help" in args:
+            return super().parse_args(ctx, args)
+
+        pitch = elbow = speed = duration = None
+        dry_run = False
+        coords: list[float] = []
+        i = 0
+        while i < len(args):
+            token = args[i]
+            if token == "--dry-run":
+                dry_run = True
+                i += 1
+                continue
+            if token in self._OPTS_WITH_VALUE:
+                if i + 1 >= len(args):
+                    ctx.fail(f"option {token} requires a value")
+                value = args[i + 1]
+                if token == "--pitch":
+                    pitch = float(value)
+                elif token == "--elbow":
+                    elbow = value
+                elif token == "--speed":
+                    speed = float(value)
+                elif token == "--duration":
+                    duration = float(value)
+                i += 2
+                continue
+            try:
+                coords.append(float(token))
+            except ValueError:
+                ctx.fail(f"no such option: {token.split('=')[0]}")
+            i += 1
+
+        if len(coords) != 3:
+            ctx.fail(f"expected X Y Z (3 coordinates), got {len(coords)}")
+
+        ctx.params.update({
+            "x": coords[0],
+            "y": coords[1],
+            "z": coords[2],
+            "pitch": pitch,
+            "elbow": elbow,
+            "speed": speed,
+            "duration": duration,
+            "dry_run": dry_run,
+        })
+        return []
+
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 @click.option(
@@ -368,7 +425,7 @@ def flow(ctx: Ctx, names: tuple[str, ...], speed, duration, dwell: float, glide:
         ctx.close()
 
 
-@cli.command()
+@cli.command(cls=ReachCommand)
 @click.argument("x", type=float)
 @click.argument("y", type=float)
 @click.argument("z", type=float)
@@ -383,8 +440,10 @@ def reach(ctx: Ctx, x, y, z, pitch, elbow, speed, duration, dry_run):
 
     Coordinates use the unit from robot.yaml `geometry` (mm by default), with
     +X forward, +Y left, +Z up, origin under the base axis on the table.
+    Negative coordinates are supported (e.g. Y to the right of centre).
 
     Example: `roboarm reach 150 0 120 --pitch -90` reaches forward and points down.
+    Example: `roboarm reach 142 -25 88 --pitch -30` reaches right of centre.
     """
     c = ctx.controller()
     try:
